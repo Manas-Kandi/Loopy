@@ -23,7 +23,7 @@ from ninexf.looplog import LogEntry, append_entry, last_iteration_number, now_is
 from ninexf.parser import parse_executor_output
 from ninexf.prompts import (
     EXECUTOR_SYSTEM, EXECUTOR_USER, MODE_BUILD, MODE_FIX, MODE_REVIEW,
-    PLANNER_SYSTEM, PLANNER_USER, STUCK_NUDGE,
+    NO_TESTS_NOTE, PLANNER_SYSTEM, PLANNER_USER, STUCK_NUDGE,
 )
 from ninexf.registry import write_state
 from ninexf.sandbox import ContainmentViolation, safe_write
@@ -102,6 +102,10 @@ class LoopRunner:
         """Generate the sub-task; on repetition, re-ask once with a nudge.
         Returns (subtask, stuck_detected)."""
         mode_instructions = {"build": MODE_BUILD, "fix": MODE_FIX, "review": MODE_REVIEW}[mode]
+        has_src = any((self.project_dir / "src").glob("*.py"))
+        has_tests = any((self.project_dir / "tests").glob("test_*.py"))
+        if has_src and not has_tests:
+            mode_instructions += NO_TESTS_NOTE
         base = PLANNER_USER.format(
             goal=self.goal, codebase=codebase, history=history,
             tools=tools, mode_instructions=mode_instructions,

@@ -83,6 +83,28 @@ def _tail(text: str, n: int = 5) -> str:
     return " | ".join(text.strip().splitlines()[-n:])
 
 
+def _import_check(project_dir: Path, written: list[Path], timeout: float, allow_network: bool) -> list[str]:
+    """Execute each written src module in the sandbox (runpy, not __main__).
+    Catches what compile-check can't: missing imports, module-level NameErrors,
+    broken cross-module imports. Without this, a project with no entry point
+    gets zero execution feedback and the loop builds on broken foundations."""
+    errors = []
+    for p in written:
+        if p.suffix != ".py":
+            continue
+        rel = p.relative_to(project_dir)
+        if rel.parts[0] != "src":
+            continue
+        code = (
+            "import sys, runpy; sys.path.insert(0, 'src'); "
+            f"runpy.run_path({str(rel)!r})"
+        )
+        rc, out = run_sandboxed(project_dir, [sys.executable, "-c", code], timeout, allow_network)
+        if rc != 0:
+            errors.append(f"{rel}: import/exec failed: {_tail(out, 3)}")
+    return errors
+
+
 def _run_entry(project_dir: Path, script: Path, timeout: float, allow_network: bool) -> list[str]:
     rc, out = run_sandboxed(
         project_dir,
@@ -124,6 +146,11 @@ def validate(
     errors = _compile_check(written_files)
     detail_parts = ["compile-check"]
     tests_ran, tests_failed = 0, []
+    if not errors:
+        errors = _import_check(project_dir, written_files, timeout, allow_network)
+        if any(p.suffix == ".py" and p.relative_to(project_dir).parts[0] == "src"
+               for p in written_files):
+            detail_parts.append("import-check")
     if not errors:
         entry = _entry_point(project_dir)
         if entry is not None:

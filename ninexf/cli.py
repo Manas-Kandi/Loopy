@@ -57,7 +57,11 @@ def cmd_run(args):
     from ninexf.loop import LoopRunner  # late import keeps `init`/`log` fast
     from ninexf.looplog import now_iso
     register_run(project, (project / GOAL_FILENAME).read_text().strip(), started=now_iso())
-    LoopRunner(project, config).run(max_iterations=args.max_iterations, delay=args.delay)
+    try:
+        LoopRunner(project, config).run(max_iterations=args.max_iterations, delay=args.delay)
+    except KeyboardInterrupt:
+        print("\n[9xf] force-quit (second Ctrl+C) — current iteration abandoned")
+        sys.exit(130)
 
 
 def cmd_status(args):

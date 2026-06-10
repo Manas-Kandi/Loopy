@@ -42,6 +42,11 @@ or missing tests — and fixes what it finds. If the history shows the same kind
 of problem recurring, consider proposing a helper script in tools/ (e.g. a
 checker or generator) that future iterations can run."""
 
+NO_TESTS_NOTE = """
+NOTE: the project currently has NO tests. Untested code keeps accumulating
+errors. Strongly consider making the next step (or a near-future step) writing
+tests in tests/ for the existing code."""
+
 STUCK_NUDGE = """
 WARNING: your proposed step was nearly identical to recent step(s):
 {repeats}
