@@ -1,4 +1,4 @@
-# 9xf loops v0.5
+# 9xf loops v0.6
 
 A research harness for autonomous, self-prompting coding loops. You give it a
 one-time goal; it then repeatedly reads its own codebase and history, generates
@@ -25,6 +25,10 @@ from `num_ctx` so prompts can't silently overflow the window; overflows are
 detected and logged; over-budget files get function-level partial rendering
 instead of collapsing to one line), and an **interactive UI** — run bare `9xf`
 in any folder and drive everything from menus, no paths or flags to remember.
+
+v0.6 adds the **app**: a chat-style UI (`9xf app` in any browser, or the
+Electron desktop app in `app/`) — pick a folder, type a goal, hit start, and
+watch the loop think in chat bubbles with a live code-diff panel alongside.
 Every mechanism remains logged and toggleable, so earlier behavior stays
 reproducible as the control in A/B runs.
 
@@ -110,6 +114,34 @@ What `--preset overnight` turns on (each independently configurable):
 Recommended overnight pairing: `ollama/qwen2.5-coder:7b` with `num_ctx` raised
 to 32768 in `9xf.config.json` if you have the RAM. As of v0.5 every context
 budget scales off `num_ctx` automatically, so that one knob is the whole tune.
+
+## The app (v0.6)
+
+A dark, chat-style interface for the whole workflow: **open → pick a folder →
+type a goal → go.** The left pane is the conversation — every iteration appears
+as a planner bubble (the sub-task it chose) and an executor bubble (what it
+did, which files, validated ✓/✗, repairs, best-of-N, acceptance status), with
+harness events (decompose, verify, revert, explore, finished) as system lines.
+The right pane is the live code diff — it follows the latest commit, or click
+any bubble to pin that iteration's diff.
+
+Two ways to run the same UI:
+
+```bash
+# in any browser — zero dependencies, same stdlib-only harness
+9xf app
+
+# as a desktop app (Electron shell with a native folder picker)
+cd app && npm install && npm start
+```
+
+The Electron app is a thin wrapper: it spawns `python3 -m ninexf app` and hosts
+it in a native window — all UI and logic live in the Python package
+(`ninexf/webapp.py`), so the browser and desktop experiences are identical.
+The app can start sessions (it inits the project and spawns a detached
+`9xf run`), resume stopped ones, and request clean stops; everything it shows
+comes from `loop_log.jsonl`, `state.json`, and git — the same artifacts the
+CLI and dashboard read. The server binds to 127.0.0.1 only.
 
 ## Arena mode (v0.5)
 
@@ -313,9 +345,10 @@ src/  tests/  tools/  the only writable dirs for the agent
 
 ```
 ninexf/
-  cli.py        9xf init|run|status|stop|log|watch|report|arena (bare 9xf = interactive)
+  cli.py        9xf init|run|status|stop|log|watch|report|arena|app (bare 9xf = interactive)
   interactive.py  menu-driven UI for bare `9xf` (v0.5)
   arena.py      successive-halving tournament of seed runs (v0.5)
+  webapp.py     `9xf app` — chat-style web UI + control API (v0.6)
   loop.py       the iteration loop + state machine (decompose/build/fix/review/
                 verify_done) + revert/explore orchestration
   tasks.py      TASKS.md + ACCEPTANCE.md (decomposition, task state, verify parsing)
@@ -338,4 +371,5 @@ ninexf/
   report.py     `9xf report` — generates the observation report
   registry.py   ~/.9xf/registry.json + per-run state.json heartbeats
 tests/          harness test suite (end-to-end mock scenarios + unit tests)
+app/            Electron desktop shell for `9xf app` (optional; needs Node)
 ```

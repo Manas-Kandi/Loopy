@@ -294,6 +294,7 @@ def _home_menu(cwd: Path) -> None:
             ("2", "start an arena (tournament of seed runs)"),
             ("3", "open one of my runs"),
             ("4", "live dashboard (browser)"),
+            ("5", "chat app UI (browser — sessions, live chat, diffs)"),
         ])
         if choice == "1":
             d = _new_run_wizard(cwd)
@@ -309,6 +310,9 @@ def _home_menu(cwd: Path) -> None:
             from types import SimpleNamespace
             from ninexf import cli
             cli.cmd_watch(SimpleNamespace(port=9119, no_browser=False))
+        elif choice == "5":
+            from ninexf.webapp import serve_app
+            serve_app()
 
 
 def interactive() -> None:

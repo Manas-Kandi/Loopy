@@ -54,31 +54,48 @@ def _generate_acceptance_tests(project: Path, goal: str) -> None:
     print("  acceptance tests skipped — verify-done will use criteria only")
 
 
-def cmd_init(args):
-    project = _project_dir(args)
+def init_project(project: Path, goal: str, *, model: str | None = None,
+                 preset: str | None = None, max_iterations: int | None = None,
+                 delay: float | None = None, allow_network: bool = False,
+                 acceptance_tests: bool = False, force: bool = False) -> Path:
+    """Create a run folder: dirs, goal, config, git, registry. The one shared
+    init path — the flag CLI, the interactive UI, the web app, and arena seeds
+    all route through here."""
     project.mkdir(parents=True, exist_ok=True)
-    if (project / CONFIG_FILENAME).exists() and not args.force:
-        sys.exit(f"{CONFIG_FILENAME} already exists in {project} (use --force to overwrite)")
-
+    if (project / CONFIG_FILENAME).exists() and not force:
+        raise FileExistsError(
+            f"{CONFIG_FILENAME} already exists in {project} (use force to overwrite)")
     (project / "src").mkdir(exist_ok=True)
     (project / "tests").mkdir(exist_ok=True)
     (project / "tests" / "__init__.py").touch()
     (project / "tools").mkdir(exist_ok=True)
-    (project / GOAL_FILENAME).write_text(args.goal.strip() + "\n")
+    (project / GOAL_FILENAME).write_text(goal.strip() + "\n")
     write_config(project, {
-        "model": args.model,
-        "max_iterations": args.max_iterations,
-        "delay_seconds": args.delay,
-        "allow_network": args.allow_network or None,
-        "acceptance_tests": args.acceptance_tests or None,
-    }, preset=args.preset)
-    (project / ".gitignore").write_text("__pycache__/\n*.pyc\nstate.json\n")
+        "model": model,
+        "max_iterations": max_iterations,
+        "delay_seconds": delay,
+        "allow_network": allow_network or None,
+        "acceptance_tests": acceptance_tests or None,
+    }, preset=preset)
+    (project / ".gitignore").write_text("__pycache__/\n*.pyc\nstate.json\nrun.out\n")
     if load_config(project).acceptance_tests:  # set via flag or preset
-        _generate_acceptance_tests(project, args.goal.strip())
+        _generate_acceptance_tests(project, goal.strip())
     if not (project / ".git").exists():
         init_repo(project)
     commit_all(project, "9xf init: goal and config", allow_empty=True)
-    register_run(project, args.goal.strip())
+    register_run(project, goal.strip())
+    return project
+
+
+def cmd_init(args):
+    project = _project_dir(args)
+    try:
+        init_project(project, args.goal, model=args.model, preset=args.preset,
+                     max_iterations=args.max_iterations, delay=args.delay,
+                     allow_network=args.allow_network,
+                     acceptance_tests=args.acceptance_tests, force=args.force)
+    except FileExistsError as e:
+        sys.exit(str(e))
     print(f"initialized 9xf project in {project}")
     print(f"  goal:  {args.goal.strip()}")
     print(f"  model: {args.model or 'ollama/qwen2.5-coder:7b (default)'}")
@@ -200,6 +217,11 @@ def cmd_watch(args):
     serve(port=args.port, open_browser=not args.no_browser)
 
 
+def cmd_app(args):
+    from ninexf.webapp import serve_app
+    serve_app(port=args.port, open_browser=not args.no_browser)
+
+
 def cmd_report(args):
     from ninexf.report import generate_report
     path = generate_report(_project_dir(args))
@@ -280,6 +302,13 @@ def main(argv=None):
     p.add_argument("--port", type=int, default=9119)
     p.add_argument("--no-browser", action="store_true")
     p.set_defaults(func=cmd_watch)
+
+    p = sub.add_parser("app", help="chat-style app UI: start sessions, watch the "
+                                   "loop think, see live diffs (also hosts the "
+                                   "Electron desktop app)")
+    p.add_argument("--port", type=int, default=9118)
+    p.add_argument("--no-browser", action="store_true")
+    p.set_defaults(func=cmd_app)
 
     p = sub.add_parser("report", help="generate REPORT.md (the written observation report)")
     add_dir(p)

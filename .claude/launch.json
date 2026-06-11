@@ -6,6 +6,12 @@
       "runtimeExecutable": ".venv/bin/9xf",
       "runtimeArgs": ["watch", "--no-browser"],
       "port": 9119
+    },
+    {
+      "name": "9xf-app",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "ninexf", "app", "--no-browser", "--port", "9118"],
+      "port": 9118
     }
   ]
 }

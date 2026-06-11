@@ -1,0 +1,13 @@
+{
+  "name": "ninexf-app",
+  "productName": "9xf",
+  "version": "0.6.0",
+  "description": "Desktop app for 9xf loops — autonomous coding loops on your own machine",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}
