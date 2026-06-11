@@ -18,7 +18,7 @@ DEFAULTS = {
     "delay_seconds": 5,
     "validation_timeout": 10,
     "allow_network": False,
-    "context_char_budget": 24000,
+    "context_char_budget": 0,  # 0 = auto: derived from num_ctx (see snapshot_budget)
     "history_entries_in_context": 15,
     "api_key_env": "ANTHROPIC_API_KEY",
     "review_every": 5,
@@ -115,6 +115,20 @@ class Config:
     num_ctx: int = DEFAULTS["num_ctx"]
     temperature: float = DEFAULTS["temperature"]
     extra: dict = field(default_factory=dict)
+
+    @property
+    def snapshot_budget(self) -> int:
+        """Char budget for the codebase snapshot. When context_char_budget is 0
+        (auto), it's derived from num_ctx so the two can't drift apart: reserve
+        ~2k tokens for the model's reply, give the snapshot ~60% of what's left
+        (history/tasks/notes/diff share the rest), at ~4 chars per token.
+        v0.4 and earlier had two independent knobs — a snapshot that fit its own
+        budget could still blow past num_ctx, and Ollama truncates silently from
+        the TOP, dropping the system prompt and goal first."""
+        if self.context_char_budget and self.context_char_budget > 0:
+            return self.context_char_budget
+        usable_tokens = max(2048, self.num_ctx - 2048)
+        return int(usable_tokens * 4 * 0.6)
 
     @property
     def provider(self) -> str:

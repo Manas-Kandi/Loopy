@@ -68,6 +68,50 @@ def stub_line(path: Path, rel: str, score: float) -> str:
     return f"--- {rel} (omitted, score {score:.1f}, {path.stat().st_size} chars):{api} ---"
 
 
+def render_partial(path: Path, subtask: str, char_budget: int) -> str | None:
+    """Function-level middle tier between "whole file" and "one stub line":
+    keep the header (imports, constants, docstring) and the full bodies of
+    defs/classes relevant to the subtask; collapse the rest to signature stubs.
+    The relevant 40 lines of a 400-line file is usually all the executor needs.
+    Returns None when the file can't be parsed, has no defs to collapse, or
+    still doesn't fit the budget."""
+    try:
+        source = path.read_text()
+        tree = ast.parse(source)
+    except (SyntaxError, UnicodeDecodeError, OSError):
+        return None
+    defs = [n for n in tree.body
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))]
+    if not defs:
+        return None
+    sub_tokens = _tokens(subtask)
+    lines = source.splitlines()
+    pieces: list[str] = []
+    header = "\n".join(lines[: defs[0].lineno - 1]).strip()
+    if header:
+        pieces.append(header)
+    for node in tree.body:
+        seg = ast.get_source_segment(source, node) or ""
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if node.lineno >= defs[0].lineno and seg and len(seg) < 400:
+                pieces.append(seg)  # small module-level statements between defs
+            continue
+        relevant = (node.name.lower() in sub_tokens
+                    or len(_tokens(seg) & sub_tokens) >= 3)
+        if relevant:
+            pieces.append(seg)
+        else:
+            kw = ("class" if isinstance(node, ast.ClassDef)
+                  else "async def" if isinstance(node, ast.AsyncFunctionDef) else "def")
+            n_lines = (node.end_lineno or node.lineno) - node.lineno + 1
+            suffix = ":" if isinstance(node, ast.ClassDef) else "(...):"
+            pieces.append(f"{kw} {node.name}{suffix}  ...  # body omitted ({n_lines} lines)")
+    text = "\n\n".join(pieces)
+    if not text or len(text) > char_budget or len(text) >= len(source):
+        return None
+    return text + ("\n" if not text.endswith("\n") else "")
+
+
 def score_files(
     files: list[tuple[Path, str]],  # (absolute, relative-str) content candidates
     subtask: str,

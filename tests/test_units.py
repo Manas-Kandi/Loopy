@@ -7,9 +7,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from ninexf.backends import context_overflowed
 from ninexf.candidates import CandidateResult, parse_critic_output, pick_winner
-from ninexf.config import PRESETS, load_config, write_config
+from ninexf.config import PRESETS, Config, load_config, write_config
 from ninexf.fitness import best_state, final_state, fitness_of
+from ninexf.relevance import render_partial
 from ninexf.parser import parse_executor_output
 from ninexf.relevance import score_files
 from ninexf.stuck import detect_signals, normalize_error
@@ -179,6 +181,50 @@ class TestPresets(unittest.TestCase):
         from ninexf.config import DEFAULTS
         for name, values in PRESETS.items():
             self.assertTrue(set(values) <= set(DEFAULTS), name)
+
+
+class TestContextSafety(unittest.TestCase):
+    def test_snapshot_budget_derived_from_num_ctx(self):
+        auto = Config(context_char_budget=0, num_ctx=16384)
+        self.assertEqual(auto.snapshot_budget, int((16384 - 2048) * 4 * 0.6))
+        bigger = Config(context_char_budget=0, num_ctx=32768)
+        self.assertGreater(bigger.snapshot_budget, auto.snapshot_budget)
+        explicit = Config(context_char_budget=24000, num_ctx=16384)
+        self.assertEqual(explicit.snapshot_budget, 24000)
+
+    def test_overflow_detection(self):
+        self.assertTrue(context_overflowed(16380, 16384))
+        self.assertTrue(context_overflowed(16384, 16384))
+        self.assertFalse(context_overflowed(8000, 16384))
+        self.assertFalse(context_overflowed(None, 16384))
+
+    def test_render_partial(self):
+        d = Path(tempfile.mkdtemp())
+        f = d / "mover.py"
+        f.write_text(
+            "import shutil\n\n"
+            "LIMIT = 5\n\n"
+            "def move_files(src, dst):\n"
+            "    shutil.move(src, dst)\n"
+            "    return dst\n\n"
+            "def unrelated_helper():\n"
+            "    x = 1\n"
+            "    y = 2\n"
+            "    return x + y\n"
+        )
+        out = render_partial(f, "Fix the bug in move_files for the mover", 5000)
+        self.assertIsNotNone(out)
+        self.assertIn("import shutil", out, "header preserved")
+        self.assertIn("shutil.move(src, dst)", out, "relevant body kept in full")
+        self.assertIn("def unrelated_helper(...):", out)
+        self.assertNotIn("return x + y", out, "irrelevant body collapsed")
+        self.assertIn("body omitted", out)
+        # too small a budget -> can't render
+        self.assertIsNone(render_partial(f, "move_files", 10))
+        # files with no defs aren't worth partial-rendering
+        g = d / "flat.py"
+        g.write_text("x = 1\ny = 2\n")
+        self.assertIsNone(render_partial(g, "anything", 5000))
 
 
 class TestParserNotes(unittest.TestCase):

@@ -298,7 +298,7 @@ class LoopRunner:
                     subtask="(exploring two approaches)", ts=now_iso())
         prev_entries = [e for e in entries if e.get("event") == "iteration"]
         plan_query = " ".join(t.text for t in load_tasks(self.project_dir).open_tasks())
-        codebase = snapshot_codebase(self.project_dir, cfg.context_char_budget,
+        codebase = snapshot_codebase(self.project_dir, cfg.snapshot_budget,
                                      subtask=plan_query, entries=prev_entries,
                                      strategy=cfg.context_strategy)
         history = history_for_context(self.project_dir, cfg.history_entries_in_context)
@@ -317,7 +317,7 @@ class LoopRunner:
             branch = f"explore-i{iteration}-{label}"
             create_branch(self.project_dir, branch)
             exec_codebase, _ = build_snapshot(
-                self.project_dir, cfg.context_char_budget, subtask=plan,
+                self.project_dir, cfg.snapshot_budget, subtask=plan,
                 entries=prev_entries, strategy=cfg.context_strategy)
             notes = notes_for_prompt(self.project_dir) if cfg.notes_enabled else ""
             executor_user = EXECUTOR_USER.format(
@@ -436,7 +436,7 @@ class LoopRunner:
         task = tl.get(task_id)
         if task is None:
             return False
-        codebase = snapshot_codebase(self.project_dir, self.config.context_char_budget)
+        codebase = snapshot_codebase(self.project_dir, self.config.snapshot_budget)
         try:
             reply = self.backend.complete(
                 TASK_CHECK_SYSTEM,
@@ -472,7 +472,7 @@ class LoopRunner:
         criteria = load_criteria(self.project_dir)
         failed: dict[int, str] = {}
         if criteria:
-            codebase = snapshot_codebase(self.project_dir, cfg.context_char_budget)
+            codebase = snapshot_codebase(self.project_dir, cfg.snapshot_budget)
             validation_text = result.detail + (
                 "; errors: " + "; ".join(result.errors) if result.errors else " (all green)")
             raw = self.backend.complete(
@@ -618,7 +618,7 @@ class LoopRunner:
         plan_query = " ".join(t.text for t in load_tasks(self.project_dir).open_tasks())
         if prev_entries:
             plan_query = f"{prev_entries[-1].get('subtask', '')} {plan_query}"
-        codebase = snapshot_codebase(self.project_dir, cfg.context_char_budget,
+        codebase = snapshot_codebase(self.project_dir, cfg.snapshot_budget,
                                      subtask=plan_query, entries=prev_entries,
                                      strategy=cfg.context_strategy)
         history = history_for_context(self.project_dir, cfg.history_entries_in_context)
@@ -643,7 +643,7 @@ class LoopRunner:
         # 2. execute it — fresh snapshot scored against the actual subtask, and
         # record which files the executor actually saw (a key research observable)
         exec_codebase, context_files = build_snapshot(
-            self.project_dir, cfg.context_char_budget, subtask=subtask,
+            self.project_dir, cfg.snapshot_budget, subtask=subtask,
             entries=prev_entries, strategy=cfg.context_strategy)
         notes = notes_for_prompt(self.project_dir) if cfg.notes_enabled else ""
         executor_user = EXECUTOR_USER.format(
@@ -811,6 +811,7 @@ class LoopRunner:
             candidates=candidates_log,
             chosen_candidate=chosen,
             repairs=repairs,
+            context_overflow=self.backend.take_overflow(),
         )
         append_entry(self.project_dir, entry)
         write_state(self.project_dir, running=True, iteration=iteration, mode=mode,

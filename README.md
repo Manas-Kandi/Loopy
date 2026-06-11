@@ -1,4 +1,4 @@
-# 9xf loops v0.4
+# 9xf loops v0.5
 
 A research harness for autonomous, self-prompting coding loops. You give it a
 one-time goal; it then repeatedly reads its own codebase and history, generates
@@ -17,13 +17,32 @@ quality — trading time, which is free, for API spend, which isn't. New: an
 in-iteration repair loop (validation errors fed straight back to the executor),
 best-state checkpointing (`keep_best` — the run ships the best state it ever
 reached, not the last one), wall-clock budgets (`9xf run --hours 8`), and an
-`--preset overnight` that turns every search mechanism on at once. Every
-mechanism remains logged and toggleable, so earlier behavior stays reproducible
-as the control in A/B runs.
+`--preset overnight` that turns every search mechanism on at once.
+
+v0.5 adds the **arena** (a successive-halving tournament of seed runs — built
+for single-machine compute), **context safety** (the snapshot budget is derived
+from `num_ctx` so prompts can't silently overflow the window; overflows are
+detected and logged; over-budget files get function-level partial rendering
+instead of collapsing to one line), and an **interactive UI** — run bare `9xf`
+in any folder and drive everything from menus, no paths or flags to remember.
+Every mechanism remains logged and toggleable, so earlier behavior stays
+reproducible as the control in A/B runs.
 
 Built per the LoopForge research PRD. Pure Python stdlib — no pip dependencies.
 
 ## Quick start
+
+The no-flags way: install, then run bare `9xf` anywhere. You get menus —
+start a new run (regular or overnight), start an arena, open any registered
+run by number, watch the dashboard. Inside a run folder, `9xf` opens that
+run's menu directly.
+
+```bash
+pip install -e .
+9xf
+```
+
+The flags way:
 
 ```bash
 # install the `9xf` command (or skip and use `python3 -m ninexf` from this repo)
@@ -89,8 +108,50 @@ What `--preset overnight` turns on (each independently configurable):
   with a higher episode cap, and held-out acceptance tests generated at init.
 
 Recommended overnight pairing: `ollama/qwen2.5-coder:7b` with `num_ctx` raised
-to 32768 in `9xf.config.json` if you have the RAM — context truncation is the
-quiet killer of long runs.
+to 32768 in `9xf.config.json` if you have the RAM. As of v0.5 every context
+budget scales off `num_ctx` automatically, so that one knob is the whole tune.
+
+## Arena mode (v0.5)
+
+The failure mode `keep_best` can't fix is a run whose *plan* was bad from
+iteration 1 — it never reaches a good state worth checkpointing. The arena
+answers "was my first decomposition a dud?" in the first hour instead of at 7am:
+
+```bash
+9xf arena --goal "Write a CLI tool that organizes files by type" \
+          --seeds 3 --hours 8 --dir ~/runs/organizer-arena
+```
+
+- K independent seed runs of the same goal, each with its own decomposition
+  (sampling temperature varies per seed for diversity), all sharing ONE
+  held-out acceptance suite so scores are comparable.
+- Each seed gets a burst: half the total budget split K ways. A seed that
+  FINISHES during its burst wins instantly.
+- Seeds are scored with the keep-best fitness tuple (acceptance > validation >
+  tasks > tests); the winner gets the entire remaining half of the night.
+- **Sequential on purpose**: on one machine, parallel runs buy nothing — Ollama
+  serializes inference, so simultaneous loops just alternate model calls. The
+  arena allocates the same total compute as one long run: diversity early,
+  depth late, zero extra RAM.
+- `ARENA.md` at the arena root summarizes scores and points at the winner.
+
+## Context safety (v0.5)
+
+Ollama truncates silently from the TOP when a prompt exceeds `num_ctx` —
+dropping the system prompt and the goal first, which makes a loop quietly
+aimless with no error anywhere. v0.5 closes this three ways:
+
+- **One knob**: `context_char_budget` defaults to 0 (auto) and is derived from
+  `num_ctx` (reserving room for the reply), so the snapshot budget and the
+  model's window can't drift apart. Set it explicitly to override.
+- **Overflow detection**: every Ollama response's `prompt_eval_count` is checked
+  against `num_ctx`; a filled window prints a warning and sets
+  `context_overflow: true` on the iteration log entry (and a report stat).
+- **Partial file rendering**: an over-budget but relevant file no longer
+  collapses straight to a one-line stub. The middle tier keeps the header and
+  the full bodies of defs/classes relevant to the subtask, collapsing the rest
+  to `def name(...): ... # body omitted (N lines)`. The relevant 40 lines of a
+  400-line file is usually all the executor needs.
 
 ## How an iteration works
 
@@ -252,7 +313,9 @@ src/  tests/  tools/  the only writable dirs for the agent
 
 ```
 ninexf/
-  cli.py        9xf init|run|status|stop|log|watch|report
+  cli.py        9xf init|run|status|stop|log|watch|report|arena (bare 9xf = interactive)
+  interactive.py  menu-driven UI for bare `9xf` (v0.5)
+  arena.py      successive-halving tournament of seed runs (v0.5)
   loop.py       the iteration loop + state machine (decompose/build/fix/review/
                 verify_done) + revert/explore orchestration
   tasks.py      TASKS.md + ACCEPTANCE.md (decomposition, task state, verify parsing)

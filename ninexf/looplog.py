@@ -43,6 +43,7 @@ class LogEntry:
     chosen_candidate: int = 0
     explore: dict = field(default_factory=dict)  # {a: {...}, b: {...}, winner} on explore events
     repairs: list[dict] = field(default_factory=list)  # in-iteration repair attempts {attempt, errors_before, passed}
+    context_overflow: bool = False  # a prompt filled num_ctx (silent top-truncation risk)
 
 
 def now_iso() -> str:

@@ -187,6 +187,51 @@ class TestTimeBudget(unittest.TestCase):
             cleanup(project)
 
 
+class TestArena(unittest.TestCase):
+    """v0.5 arena: K seed runs race in bursts; the best survivor gets the rest."""
+
+    def test_finishing_seed_wins_instantly(self):
+        import tempfile
+        from pathlib import Path
+        from ninexf.arena import run_arena
+        base = Path(tempfile.mkdtemp(prefix="9xf-arena-")).resolve()
+        try:
+            winner = run_arena(base, "Greeting tool", model="mock/finisher",
+                               seeds=2, hours=0, preset=None,
+                               burst_iterations=8, final_iterations=3, delay=0)
+            self.assertEqual(winner.name, "seed-1",
+                             "first seed finishes during its burst and wins instantly")
+            # seed 2 never ran — its burst was skipped by the early exit
+            from tests.helpers import events
+            from ninexf.looplog import read_entries
+            self.assertTrue(events(read_entries(winner), "finished"))
+            self.assertFalse(iteration_entries(read_entries(base / "seed-2")))
+            arena_md = (base / "ARENA.md").read_text()
+            self.assertIn("seed-1", arena_md)
+            self.assertIn("winner", arena_md.lower())
+        finally:
+            cleanup(base)
+
+    def test_score_picks_winner_and_final_phase_runs(self):
+        import tempfile
+        from pathlib import Path
+        from ninexf.arena import run_arena
+        from ninexf.looplog import read_entries
+        base = Path(tempfile.mkdtemp(prefix="9xf-arena-")).resolve()
+        try:
+            winner = run_arena(base, "Greeting tool", model="mock/regressor",
+                               seeds=2, hours=0, preset=None,
+                               burst_iterations=4, final_iterations=3, delay=0)
+            self.assertEqual(winner.name, "seed-1", "tie goes to the earlier seed")
+            w_iters = len(iteration_entries(read_entries(base / "seed-1")))
+            l_iters = len(iteration_entries(read_entries(base / "seed-2")))
+            self.assertGreater(w_iters, l_iters,
+                               "the winner gets the final phase on top of its burst")
+            self.assertTrue((base / "ARENA.md").exists())
+        finally:
+            cleanup(base)
+
+
 class TestAcceptanceAndDefaultMock(unittest.TestCase):
     """Phase 4 acceptance generation + the v0.2 default mock still works."""
 

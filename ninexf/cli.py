@@ -185,6 +185,16 @@ def cmd_log(args):
             print(json.dumps(e))
 
 
+def cmd_arena(args):
+    from ninexf.arena import run_arena
+    run_arena(
+        _project_dir(args), args.goal.strip(), model=args.model,
+        seeds=args.seeds, hours=args.hours, preset=args.preset,
+        burst_iterations=args.burst_iterations,
+        final_iterations=args.final_iterations, delay=args.delay,
+    )
+
+
 def cmd_watch(args):
     from ninexf.dashboard import serve
     serve(port=args.port, open_browser=not args.no_browser)
@@ -197,6 +207,12 @@ def cmd_report(args):
 
 
 def main(argv=None):
+    if argv is None:
+        argv = sys.argv[1:]
+    if not argv:  # bare `9xf` -> interactive mode: menus instead of flags
+        from ninexf.interactive import interactive
+        interactive()
+        return
     parser = argparse.ArgumentParser(prog="9xf", description="9xf loops — autonomous coding loop research harness")
     parser.add_argument("--version", action="version", version=f"9xf loops {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -241,6 +257,24 @@ def main(argv=None):
     p.add_argument("--raw", action="store_true", help="also dump raw JSONL")
     add_dir(p)
     p.set_defaults(func=cmd_log)
+
+    p = sub.add_parser("arena", help="successive-halving tournament: K seed runs, "
+                                     "best survivor gets the rest of the budget")
+    p.add_argument("--goal", required=True, help="the high-level goal, shared by every seed")
+    p.add_argument("--seeds", type=int, default=3, help="independent seed runs (default 3)")
+    p.add_argument("--hours", type=float, default=8.0,
+                   help="total wall-clock budget; half split across seed bursts, "
+                        "half for the winner (default 8)")
+    p.add_argument("--model", default=None, help="model for every seed")
+    p.add_argument("--preset", default="overnight", choices=sorted(PRESETS),
+                   help="config preset per seed (default overnight)")
+    p.add_argument("--burst-iterations", type=int, default=None,
+                   help="iteration cap per seed burst (mainly for hours=0 test runs)")
+    p.add_argument("--final-iterations", type=int, default=None,
+                   help="iteration cap for the winner's final phase")
+    p.add_argument("--delay", type=float, default=None)
+    add_dir(p)
+    p.set_defaults(func=cmd_arena)
 
     p = sub.add_parser("watch", help="live dashboard for all registered runs")
     p.add_argument("--port", type=int, default=9119)

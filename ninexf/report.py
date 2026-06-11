@@ -159,6 +159,10 @@ def generate_report(project_dir: Path) -> Path:
                 f for e in iters for f in e.get("context_files", [])).most_common(8))
             or "n/a (pre-v0.3 log)"),
         f"- notes written: {sum(len(e.get('notes_added', [])) for e in iters)}",
+        f"- context overflows (prompt filled num_ctx — silent truncation risk): "
+        f"{sum(1 for e in iters if e.get('context_overflow'))}/{n}",
+        f"- partial file renders: "
+        f"{sum(1 for e in iters for f in e.get('context_files', []) if '(partial)' in f)}",
         "",
         "## Verification (v0.3)",
         "",

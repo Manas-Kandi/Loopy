@@ -18,7 +18,28 @@ class BackendError(Exception):
     pass
 
 
+def context_overflowed(prompt_tokens: int | None, num_ctx: int) -> bool:
+    """Did the prompt fill (and therefore overflow) the context window?
+    Ollama truncates silently from the TOP when the prompt exceeds num_ctx —
+    dropping the system prompt and goal first, which makes the loop aimless
+    with no error anywhere. prompt_eval_count brushing num_ctx is the tell."""
+    return prompt_tokens is not None and prompt_tokens >= num_ctx - 64
+
+
 class Backend:
+    def __init__(self):
+        self._overflowed = False
+
+    def note_overflow(self) -> None:
+        self._overflowed = True
+
+    def take_overflow(self) -> bool:
+        """Sticky overflow flag: True if any call since the last take filled
+        the context window. The loop reads this once per iteration entry."""
+        v = self._overflowed
+        self._overflowed = False
+        return v
+
     def complete(self, system: str, user: str, temperature: float | None = None) -> str:
         """temperature=None means the backend's default (used by best-of-N
         candidate sampling to vary candidates)."""
@@ -44,6 +65,7 @@ def _post_json(url: str, payload: dict, headers: dict, timeout: float = 300) -> 
 
 class OllamaBackend(Backend):
     def __init__(self, config: Config):
+        super().__init__()
         self.model = config.model_name
         self.endpoint = config.endpoint.rstrip("/")
         self.num_ctx = config.num_ctx
@@ -65,6 +87,11 @@ class OllamaBackend(Backend):
             },
             headers={},
         )
+        if context_overflowed(data.get("prompt_eval_count"), self.num_ctx):
+            self.note_overflow()
+            print(f"[9xf] WARNING: prompt filled the context window "
+                  f"({data.get('prompt_eval_count')} / num_ctx {self.num_ctx}) — "
+                  f"ollama truncates from the top; raise num_ctx in 9xf.config.json")
         content = data.get("message", {}).get("content", "")
         if not content:
             raise BackendError(f"empty response from ollama: {json.dumps(data)[:300]}")
@@ -73,6 +100,7 @@ class OllamaBackend(Backend):
 
 class AnthropicBackend(Backend):
     def __init__(self, config: Config):
+        super().__init__()
         self.model = config.model_name
         self.api_key = os.environ.get(config.api_key_env, "")
         if not self.api_key:
@@ -111,6 +139,7 @@ class MockBackend(Backend):
     specific v0.3 behaviors for the harness's own test suite."""
 
     def __init__(self, scenario: str = ""):
+        super().__init__()
         self.scenario = scenario
         self._verify_calls = 0
 

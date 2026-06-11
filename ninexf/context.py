@@ -19,7 +19,9 @@ from pathlib import Path
 
 from ninexf import GOAL_FILENAME, LOG_FILENAME, STOP_FILENAME
 from ninexf.looplog import read_entries
-from ninexf.relevance import score_files, stub_line
+from ninexf.relevance import render_partial, score_files, stub_line
+
+MIN_PARTIAL_BUDGET = 600  # don't bother partial-rendering into a sliver of budget
 
 SKIP_DIRS = {".git", "__pycache__", ".venv", "node_modules"}
 SKIP_FILES = {LOG_FILENAME, STOP_FILENAME, "REPORT.md", "state.json",
@@ -76,7 +78,19 @@ def build_snapshot(
         block = f"--- {rel} ---\n{content}\n"
         if used + len(block) > char_budget:
             if score is not None:
-                # keep the API surface visible even when the body doesn't fit
+                # middle tier: keep the subtask-relevant defs in full, collapse
+                # the rest to signature stubs — a whole-file-or-one-line cliff
+                # loses exactly the code the model is working on
+                remaining = char_budget - used - 200
+                partial = (render_partial(path, subtask, remaining)
+                           if subtask and remaining > MIN_PARTIAL_BUDGET else None)
+                if partial:
+                    pblock = f"--- {rel} (partial: irrelevant bodies omitted) ---\n{partial}\n"
+                    lines.append(pblock)
+                    used += len(pblock)
+                    included.append(f"{rel} (partial)")
+                    continue
+                # keep the API surface visible even when nothing else fits
                 stub = stub_line(path, rel, score)
                 lines.append(stub)
                 used += len(stub) + 1
