@@ -41,10 +41,12 @@ from ninexf.looplog import LogEntry, append_entry, last_iteration_number, now_is
 from ninexf.parser import parse_executor_output
 from ninexf.parser import ParsedOutput
 from ninexf.prompts import (
-    CHANGES_SECTION, CRITIC_SYSTEM, CRITIC_USER, DECOMPOSE_SYSTEM, DECOMPOSE_USER,
+    CHANGES_SECTION, CRITIC_SYSTEM, CRITIC_USER, DECOMPOSE_RETRY_NOTE,
+    DECOMPOSE_SYSTEM, DECOMPOSE_USER, DIAGNOSIS_SYSTEM, DIAGNOSIS_USER,
     EXECUTOR_SYSTEM, EXECUTOR_USER, EXPLORE_NUDGE_A, EXPLORE_NUDGE_B,
     MODE_BUILD, MODE_FIX, MODE_REVIEW, NO_TESTS_NOTE, NOTES_SECTION,
     PLANNER_SYSTEM, PLANNER_USER, REPAIR_NOTE, REVISE_NOTE, STUCK_NUDGE,
+    TASK_ELIGIBILITY_NUDGE,
     TASK_CHECK_SYSTEM, TASK_CHECK_USER, TASKS_SECTION,
     VERIFY_DONE_SYSTEM, VERIFY_DONE_USER,
 )
@@ -54,8 +56,9 @@ from ninexf.stuck import detect_signals
 from ninexf.tasks import (
     STATUS_DEFERRED, STATUS_DONE, STATUS_IN_PROGRESS, Task, TaskList,
     criteria_for_prompt, load_criteria, load_tasks, mark_status,
-    parse_decomposition, parse_task_ref, parse_verify_output, save_criteria, save_tasks,
-    strip_task_ref, tasks_for_prompt, tasks_path, append_tasks,
+    parse_decomposition, parse_task_ref, parse_task_ref_num, parse_verify_output,
+    sanitize_decomposition, save_criteria, save_tasks, strip_task_ref,
+    tasks_for_prompt, tasks_path, append_tasks,
 )
 from ninexf.tools import run_tool, tools_for_prompt
 from ninexf.validate import run_acceptance, validate
@@ -75,6 +78,9 @@ class ExecOutcome:
     validation_passed: bool = False
     validation_detail: str = ""
     tests_ran: int = 0
+    failure_kind: str = ""
+    error_signature: str = ""
+    error_excerpt: str = ""
 
 
 class LoopRunner:
@@ -201,12 +207,47 @@ class LoopRunner:
         subtask = self.backend.complete(PLANNER_SYSTEM, base).strip().splitlines()[0][:500]
         signals = detect_signals(subtask, entries, self.config.stuck_similarity)
         if not signals:
-            return subtask, []
+            return self._ensure_eligible_plan(base, subtask), []
         nudge = STUCK_NUDGE.format(
             signals="\n".join(f"  - {s.kind}: {s.detail}" for s in signals))
         retry = self.backend.complete(PLANNER_SYSTEM, base + nudge).strip().splitlines()[0][:500]
         # keep the retry even if still similar — one nudge only; persistence is data
-        return retry, [s.kind for s in signals]
+        return self._ensure_eligible_plan(base, retry), [s.kind for s in signals]
+
+    def _task_ref_problem(self, subtask: str) -> str:
+        tl = load_tasks(self.project_dir)
+        if not tl.tasks:
+            return ""
+        open_tasks = tl.open_tasks()
+        if not open_tasks:
+            return ""
+        num = parse_task_ref_num(subtask)
+        if not num:
+            return ""
+        task = tl.get(num)
+        if task is None:
+            return f"T{num} is not in TASKS.md"
+        if not task.open:
+            return f"T{num} is deferred or already resolved"
+        return ""
+
+    def _ensure_eligible_plan(self, base: str, subtask: str) -> str:
+        """Planner guardrail: don't execute unknown/deferred task references."""
+        problem = self._task_ref_problem(subtask)
+        if not problem:
+            return subtask
+        retry = self.backend.complete(
+            PLANNER_SYSTEM,
+            base + TASK_ELIGIBILITY_NUDGE.format(reason=problem),
+        ).strip().splitlines()[0][:500]
+        if not self._task_ref_problem(retry):
+            return retry
+        tl = load_tasks(self.project_dir)
+        open_tasks = tl.open_tasks()
+        if open_tasks:
+            t = open_tasks[0]
+            return f"TASK T{t.num}: {t.text}"
+        return retry
 
     # -- auto-revert (v0.3) -------------------------------------------------------
 
@@ -391,8 +432,20 @@ class LoopRunner:
                     subtask="(decomposing goal)", ts=now_iso())
         raw = self.backend.complete(DECOMPOSE_SYSTEM, DECOMPOSE_USER.format(goal=self.goal))
         task_texts, criteria = parse_decomposition(raw)
+        task_texts, criteria, rejections = sanitize_decomposition(
+            self.goal, task_texts, criteria)
+        if rejections and len(task_texts) < 2:
+            retry_user = DECOMPOSE_USER.format(goal=self.goal) + DECOMPOSE_RETRY_NOTE.format(
+                rejections="\n".join(f"- {r}" for r in rejections[:8]))
+            raw = self.backend.complete(DECOMPOSE_SYSTEM, retry_user)
+            retry_tasks, retry_criteria = parse_decomposition(raw)
+            task_texts, criteria, retry_rejections = sanitize_decomposition(
+                self.goal, retry_tasks, retry_criteria)
+            rejections.extend(retry_rejections)
 
         errors: list[str] = []
+        if rejections:
+            errors.extend(f"decomposition rejected {r}" for r in rejections[:8])
         if len(task_texts) < 2:
             # never die on a bad decomposition — fall back to v0.2 planning
             errors.append(f"decomposition produced only {len(task_texts)} task(s); "
@@ -524,6 +577,9 @@ class LoopRunner:
             event=event, mode="verify_done", tests_ran=result.tests_ran,
             tasks_done=done, tasks_total=total,
             acceptance_passed=acc_passed, acceptance_ran=acc_ran,
+            failure_kind=result.failure_kind,
+            error_signature=result.error_signature,
+            error_excerpt=result.error_excerpt,
         )
         append_entry(self.project_dir, entry)
         write_state(self.project_dir, running=True, iteration=iteration, mode="verify_done",
@@ -560,9 +616,46 @@ class LoopRunner:
             outcome.validation_passed = result.passed
             outcome.validation_detail = result.detail
             outcome.tests_ran = result.tests_ran
+            outcome.failure_kind = result.failure_kind
+            outcome.error_signature = result.error_signature
+            outcome.error_excerpt = result.error_excerpt
         else:
             outcome.validation_detail = "nothing written"
+            if outcome.errors:
+                outcome.failure_kind = "parse"
+                outcome.error_signature = outcome.errors[0].lower()[:300]
+                outcome.error_excerpt = outcome.errors[0]
         return outcome
+
+    def _should_diagnose(self, outcome: ExecOutcome) -> bool:
+        if not outcome.errors:
+            return False
+        if outcome.failure_kind in {"timeout", "slow_test"}:
+            return True
+        sig = outcome.error_signature
+        if not sig:
+            return False
+        recent = [e for e in read_entries(self.project_dir)
+                  if e.get("event") == "iteration" and not e.get("validation_passed")]
+        return any(e.get("error_signature") == sig for e in recent[-2:])
+
+    def _diagnose(self, subtask: str, outcome: ExecOutcome,
+                  codebase: str, history: str) -> str:
+        evidence = "\n".join(outcome.errors[:3])
+        if outcome.error_excerpt and outcome.error_excerpt not in evidence:
+            evidence += "\n\n" + outcome.error_excerpt
+        try:
+            return self.backend.complete(
+                DIAGNOSIS_SYSTEM,
+                DIAGNOSIS_USER.format(
+                    goal=self.goal, codebase=codebase, history=history,
+                    subtask=subtask, errors=evidence[:5000],
+                ),
+            ).strip()[:2000]
+        except BackendError:
+            raise
+        except Exception as e:
+            return f"CAUSE: diagnosis failed: {e}\nPATCH_PLAN: use validation evidence directly"
 
     # -- in-iteration repair (overnight) -----------------------------------------
 
@@ -691,7 +784,11 @@ class LoopRunner:
         # winner) gets its errors fed straight back instead of waiting a full
         # re-plan round trip
         repairs: list[dict] = []
+        diagnosis = ""
         if cfg.repair_attempts > 0 and (not outcome.validation_passed or outcome.errors):
+            if self._should_diagnose(outcome):
+                diagnosis = self._diagnose(subtask, outcome, exec_codebase, history)
+                executor_user += "\n\nDIAGNOSIS BEFORE REPAIR:\n" + diagnosis + "\n"
             outcome, repairs = self._repair_loop(iteration, subtask, executor_user, outcome)
 
         # critic pass: review the diff of a *passing* change before commit
@@ -722,12 +819,20 @@ class LoopRunner:
         # 3. run requested tools (agent-created helper scripts; winner only)
         tool_runs = []
         if cfg.tools_enabled:
+            dropped = 0
             for name, args in parsed.tool_runs[: cfg.max_tool_runs_per_iteration]:
                 result = run_tool(self.project_dir, name, args,
                                   cfg.validation_timeout, cfg.allow_network)
                 tool_runs.append({"name": name, "args": args, "result": result})
                 print(f"[9xf]   tool {name} {args}: {result[:120]}")
-            dropped = len(parsed.tool_runs) - len(tool_runs)
+                if result.startswith(f"tool {name!r} not found"):
+                    msg = f"unknown tool requested: {name!r}; available tools: {tools}"
+                    errors.append(msg)
+                    validation_passed = False
+                    outcome.failure_kind = "tool"
+                    outcome.error_signature = msg.lower()[:300]
+                    outcome.error_excerpt = msg
+                dropped = len(parsed.tool_runs) - len(tool_runs)
             if dropped > 0:
                 errors.append(f"{dropped} tool run(s) dropped (cap {cfg.max_tool_runs_per_iteration})")
 
@@ -812,6 +917,10 @@ class LoopRunner:
             chosen_candidate=chosen,
             repairs=repairs,
             context_overflow=self.backend.take_overflow(),
+            failure_kind=outcome.failure_kind,
+            error_signature=outcome.error_signature,
+            error_excerpt=outcome.error_excerpt,
+            diagnosis=diagnosis,
         )
         append_entry(self.project_dir, entry)
         write_state(self.project_dir, running=True, iteration=iteration, mode=mode,

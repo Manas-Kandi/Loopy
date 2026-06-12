@@ -4,6 +4,7 @@ temp dir with a mock scenario backend, then assert on loop_log.jsonl + git."""
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -13,6 +14,8 @@ from ninexf.cli import main as cli_main
 from ninexf.config import load_config
 from ninexf.loop import LoopRunner
 from ninexf.looplog import read_entries
+
+os.environ.setdefault("NINEXF_REGISTRY_DIR", tempfile.mkdtemp(prefix="9xf-registry-"))
 
 
 def make_run(goal: str, model: str, config_overrides: dict | None = None) -> Path:

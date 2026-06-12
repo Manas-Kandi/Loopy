@@ -15,20 +15,29 @@ REGISTRY_FILE = REGISTRY_DIR / "registry.json"
 STATE_FILENAME = "state.json"
 
 
+def _registry_dir() -> Path:
+    return Path(os.environ.get("NINEXF_REGISTRY_DIR", str(REGISTRY_DIR))).expanduser()
+
+
+def _registry_file() -> Path:
+    return _registry_dir() / "registry.json"
+
+
 def _load() -> list[dict]:
-    if not REGISTRY_FILE.exists():
+    path = _registry_file()
+    if not path.exists():
         return []
     try:
-        return json.loads(REGISTRY_FILE.read_text())
+        return json.loads(path.read_text())
     except json.JSONDecodeError:
         return []
 
 
 def register_run(project_dir: Path, goal: str, started: str | None = None) -> None:
-    REGISTRY_DIR.mkdir(exist_ok=True)
+    _registry_dir().mkdir(parents=True, exist_ok=True)
     entries = [e for e in _load() if e.get("dir") != str(project_dir)]
     entries.append({"dir": str(project_dir), "goal": goal, "last_started": started})
-    REGISTRY_FILE.write_text(json.dumps(entries, indent=2))
+    _registry_file().write_text(json.dumps(entries, indent=2))
 
 
 def registered_runs() -> list[Path]:
@@ -40,8 +49,9 @@ def registered_runs() -> list[Path]:
         if p.is_dir() and (p / GOAL_FILENAME).exists():
             live.append(p)
             kept.append(e)
-    if len(kept) != len(entries) and REGISTRY_FILE.exists():
-        REGISTRY_FILE.write_text(json.dumps(kept, indent=2))
+    path = _registry_file()
+    if len(kept) != len(entries) and path.exists():
+        path.write_text(json.dumps(kept, indent=2))
     return live
 
 

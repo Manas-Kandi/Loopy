@@ -17,8 +17,10 @@ from ninexf.relevance import score_files
 from ninexf.stuck import detect_signals, normalize_error
 from ninexf.tasks import (
     Task, TaskList, load_tasks, parse_decomposition, parse_task_ref,
-    parse_verify_output, save_tasks, strip_task_ref,
+    parse_task_ref_num, parse_verify_output, sanitize_decomposition,
+    save_tasks, strip_task_ref, tasks_for_prompt,
 )
+from ninexf.validate import validate
 
 
 class TestTasks(unittest.TestCase):
@@ -42,12 +44,40 @@ class TestTasks(unittest.TestCase):
         self.assertEqual(criteria, ["c1", "c2"])
 
     def test_task_ref(self):
-        tl = TaskList(tasks=[Task(3, "x")])
+        tl = TaskList(tasks=[Task(3, "x"), Task(4, "deferred", "!")])
         self.assertEqual(parse_task_ref("TASK T3: do x", tl), 3)
         self.assertEqual(parse_task_ref("TASK 3: do x", tl), 3)
         self.assertEqual(parse_task_ref("TASK T9: unknown", tl), 0)
+        self.assertEqual(parse_task_ref("TASK T4: deferred", tl), 0)
+        self.assertEqual(parse_task_ref_num("TASK T4: deferred"), 4)
         self.assertEqual(parse_task_ref("just do x", tl), 0)
         self.assertEqual(strip_task_ref("TASK T3: do x"), "do x")
+
+    def test_tasks_prompt_marks_deferred_ineligible(self):
+        d = Path(tempfile.mkdtemp())
+        save_tasks(d, TaskList(tasks=[Task(1, "open"), Task(2, "blocked", "!")]))
+        prompt = tasks_for_prompt(d)
+        self.assertIn("Eligible open tasks", prompt)
+        self.assertIn("T1 (open)", prompt)
+        self.assertIn("T2 (deferred, not eligible)", prompt)
+
+    def test_sanitize_bad_decomposition(self):
+        tasks, criteria, rejected = sanitize_decomposition(
+            "Python progress bar",
+            [
+                "Create src/main.py",
+                "Initialize a virtual environment in the project root",
+                "Update `.gitignore`",
+                "Add tests/test_main.py",
+            ],
+            [
+                "Running `flake8 src` passes",
+                "Running unittest discovery passes",
+            ],
+        )
+        self.assertEqual(tasks, ["Create src/main.py", "Add tests/test_main.py"])
+        self.assertEqual(criteria, ["Running unittest discovery passes"])
+        self.assertGreaterEqual(len(rejected), 3)
 
     def test_verify_output(self):
         passed, failed = parse_verify_output(
@@ -233,6 +263,53 @@ class TestParserNotes(unittest.TestCase):
             "SUMMARY: x\nNOTE: keep this\nFILE: src/a.py\n"
             "```python\n# NOTE: not this\nx=1\n```\nNOTE: and this\n")
         self.assertEqual(out.notes, ["keep this", "and this"])
+
+
+class TestValidationEvidence(unittest.TestCase):
+    def test_unittest_error_excerpt_keeps_traceback(self):
+        d = Path(tempfile.mkdtemp())
+        (d / "src").mkdir()
+        (d / "tests").mkdir()
+        (d / "tests" / "__init__.py").write_text("")
+        (d / "src" / "progress.py").write_text(
+            "class ProgressBar:\n"
+            "    def update(self, increment=1):\n"
+            "        return increment\n"
+        )
+        test = d / "tests" / "test_progress.py"
+        test.write_text(
+            "import unittest\n"
+            "from src.progress import ProgressBar\n\n"
+            "class TestProgress(unittest.TestCase):\n"
+            "    def test_update_percentage_and_elapsed(self):\n"
+            "        ProgressBar().update(new_percentage=75)\n"
+        )
+        result = validate(d, [test], timeout=5, allow_network=True)
+        self.assertFalse(result.passed)
+        self.assertEqual(result.failure_kind, "tests")
+        self.assertIn("test_update_percentage_and_elapsed", result.errors[0])
+        self.assertIn("TypeError", result.errors[0])
+        self.assertIn("unexpected keyword argument", result.error_excerpt)
+
+    def test_slow_test_guard_fails_before_timeout(self):
+        d = Path(tempfile.mkdtemp())
+        (d / "src").mkdir()
+        (d / "tests").mkdir()
+        (d / "tests" / "__init__.py").write_text("")
+        src = d / "src" / "main.py"
+        src.write_text("def main():\n    return 0\n")
+        test = d / "tests" / "test_slow.py"
+        test.write_text(
+            "import time\nimport unittest\n\n"
+            "class TestSlow(unittest.TestCase):\n"
+            "    def test_slow(self):\n"
+            "        time.sleep(1)\n"
+            "        self.assertTrue(True)\n"
+        )
+        result = validate(d, [test], timeout=5, allow_network=True)
+        self.assertFalse(result.passed)
+        self.assertEqual(result.failure_kind, "slow_test")
+        self.assertIn("slow_test", result.errors[0])
 
 
 if __name__ == "__main__":

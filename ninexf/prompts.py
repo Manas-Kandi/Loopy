@@ -34,6 +34,7 @@ TASK LIST (work through the open tasks; the harness marks them done):
 
 Begin your reply with `TASK Tn:` naming which open task this step advances,
 then the instruction. Example: `TASK T3: Implement the move logic in src/mover.py`
+Only choose an eligible open task. Do not choose a deferred task.
 """
 
 NOTES_SECTION = """
@@ -71,6 +72,46 @@ WARNING: the loop appears stuck. Detected pattern(s):
 Propose a DIFFERENT next step that breaks this pattern and makes new
 progress toward the goal."""
 
+TASK_ELIGIBILITY_NUDGE = """
+
+The proposed step targeted an ineligible or unknown task:
+{reason}
+
+Choose exactly one eligible open task from the task list and begin with
+`TASK Tn:`. Do not target deferred tasks.
+"""
+
+DIAGNOSIS_SYSTEM = """\
+You are the diagnosis step of an autonomous coding loop. Do not write code.
+Given the current codebase, recent history, the failed sub-task, and validation
+evidence, identify the root cause and the smallest safe patch plan. Reply with
+exactly two lines:
+CAUSE: <one concrete root cause>
+PATCH_PLAN: <one concrete implementation plan>"""
+
+DIAGNOSIS_USER = """\
+GOAL:
+{goal}
+
+CURRENT CODEBASE:
+{codebase}
+
+HISTORY:
+{history}
+
+FAILED SUB-TASK:
+{subtask}
+
+VALIDATION EVIDENCE:
+{errors}
+
+If the failure is a timeout or slow test, the patch plan must make tests fast
+and deterministic: avoid multi-second sleeps, inject clocks/sleep functions
+where useful, and test rendering/update behavior separately from animation
+timing.
+
+Diagnose now."""
+
 EXPLORE_NUDGE_A = """
 THE LOOP IS HARD-STUCK: recent iterations keep failing the same way and a
 rollback did not help. Ignore the failed approach entirely. Propose ONE next
@@ -104,7 +145,20 @@ Rules:
 - The first task should create the program's entry point in src/.
 - 3 to 8 CRITERION lines. Each must be checkable by running the program or
   its tests (e.g. "running `python src/main.py --help` exits 0 and prints usage").
+- Tasks and criteria must stay within the harness sandbox: source in src/,
+  tests in tests/, helper scripts in tools/. Do not require virtualenvs,
+  activation, package installs, root-level files, flake8, pytest, npm, pip,
+  or any unavailable external tool unless the goal explicitly asks for it.
 - One line per task/criterion. No other text."""
+
+DECOMPOSE_RETRY_NOTE = """
+
+Your previous decomposition included work the harness cannot safely execute:
+{rejections}
+
+Try again. Replace those items with concrete stdlib-only coding or unittest
+tasks inside src/, tests/, or tools/. Do not mention the rejected setup/tooling.
+"""
 
 TASK_CHECK_SYSTEM = """\
 You are a strict completion checker for an autonomous coding loop. You will be
@@ -236,7 +290,10 @@ Rules:
 - File paths must be relative and inside `src/`, `tests/`, or `tools/` only.
 - Rewrite whole files; partial edits are not supported.
 - Helper scripts in tools/ must have a module docstring whose first line
-  describes what the tool does."""
+  describes what the tool does.
+- Tests must be fast, deterministic, stdlib-only unittest tests. Do not write
+  tests that wait near the validation timeout, require pytest/flake8, or assert
+  multi-second wall-clock timing."""
 
 EXECUTOR_USER = """\
 GOAL:

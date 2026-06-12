@@ -332,6 +332,120 @@ class MockBackend(Backend):
             )
         return self._regressor(user)
 
+    def _bad_decompose(self, user: str) -> str:
+        if "Break this goal down" in user and "previous decomposition" not in user:
+            return (
+                "TASK: Create src/main.py with the progress bar entry point.\n"
+                "TASK: Initialize a virtual environment in the project root.\n"
+                "TASK: Update `.gitignore` for venv artifacts.\n"
+                "CRITERION: running `flake8 src/progress_bar` produces no errors.\n"
+                "CRITERION: a venv directory exists and is active.\n"
+            )
+        if "Break this goal down" in user:
+            return (
+                "TASK: Create src/main.py with the progress bar entry point.\n"
+                "TASK: Add src/progress_bar.py with a ProgressBar class.\n"
+                "TASK: Add unittest coverage in tests/test_progress_bar.py.\n"
+                "CRITERION: running `python src/main.py` exits 0.\n"
+                "CRITERION: unittest discovery passes.\n"
+            )
+        return self._finisher(user)
+
+    def _deferred_retry(self, user: str) -> str:
+        if "Break this goal down" in user:
+            return (
+                "TASK: Add a broken module in src/broken.py.\n"
+                "TASK: Create src/main.py with a main() function that prints a greeting.\n"
+                "CRITERION: running `python src/main.py` exits 0\n"
+            )
+        if "First line: YES or NO" in user:
+            return "YES — complete."
+        if "single most useful next step" in user:
+            return "TASK T1: Add a broken module in src/broken.py."
+        _, _, sub = user.partition("SUB-TASK FOR THIS ITERATION:")
+        if "main.py" in sub or "greeting" in sub:
+            return (
+                "SUMMARY: Created the greeting entry point.\n"
+                "FILE: src/main.py\n"
+                "```python\n"
+                "def main():\n"
+                "    print('hello')\n\n"
+                "if __name__ == '__main__':\n"
+                "    main()\n"
+                "```\n"
+            )
+        return (
+            "SUMMARY: Added a broken module.\n"
+            "FILE: src/broken.py\n"
+            "```python\n"
+            "def broken(:\n"
+            "    return 1\n"
+            "```\n"
+        )
+
+    def _slow_test(self, user: str) -> str:
+        if "Break this goal down" in user:
+            return (
+                "TASK: Create src/main.py with a main() function.\n"
+                "TASK: Add a slow unittest in tests/test_main.py.\n"
+                "CRITERION: unittest discovery passes\n"
+            )
+        if "First line: YES or NO" in user:
+            return "YES — complete."
+        if "single most useful next step" in user:
+            if "T1 (DONE)" not in user:
+                return "TASK T1: Create src/main.py with a main() function."
+            return "TASK T2: Add a slow unittest in tests/test_main.py."
+        _, _, sub = user.partition("SUB-TASK FOR THIS ITERATION:")
+        if "slow unittest" in sub:
+            return (
+                "SUMMARY: Added a slow unittest.\n"
+                "FILE: tests/test_main.py\n"
+                "```python\n"
+                "import time\n"
+                "import unittest\n\n"
+                "class TestMain(unittest.TestCase):\n"
+                "    def test_slow(self):\n"
+                "        time.sleep(1)\n"
+                "        self.assertTrue(True)\n\n"
+                "if __name__ == '__main__':\n"
+                "    unittest.main()\n"
+                "```\n"
+            )
+        return (
+            "SUMMARY: Created src/main.py.\n"
+            "FILE: src/main.py\n"
+            "```python\n"
+            "def main():\n"
+            "    return 0\n\n"
+            "if __name__ == '__main__':\n"
+            "    main()\n"
+            "```\n"
+        )
+
+    def _unknown_tool(self, user: str) -> str:
+        if "Break this goal down" in user:
+            return (
+                "TASK: Create src/main.py and request an unavailable tool.\n"
+                "TASK: Add a unit test for main.\n"
+                "CRITERION: validation passes\n"
+            )
+        if "First line: YES or NO" in user:
+            return "YES — complete."
+        if "single most useful next step" in user:
+            return "TASK T1: Create src/main.py and request an unavailable tool."
+        return (
+            "SUMMARY: Created src/main.py and requested pytest.\n"
+            "FILE: src/main.py\n"
+            "```python\n"
+            "def main():\n"
+            "    print('hello')\n\n"
+            "if __name__ == '__main__':\n"
+            "    main()\n"
+            "```\n"
+            "RUN_TOOL: pytest tests/\n"
+        )
+
     def _plan(self, user: str) -> str:
         if "You are repeating yourself" in user:
             return "Create a helper tool tools/line_count.py that counts lines of source code."
@@ -368,6 +482,8 @@ class MockBackend(Backend):
             )
         if "Judge the change now" in user:
             return "VERDICT: ACCEPT"
+        if "Diagnose now" in user:
+            return "CAUSE: the same validation error recurred.\nPATCH_PLAN: make the smallest code change that directly addresses the traceback."
         if self.scenario == "finisher":
             return self._finisher(user)
         if self.scenario == "regressor":
@@ -376,6 +492,14 @@ class MockBackend(Backend):
             return self._explorer(user)
         if self.scenario == "repairer":
             return self._repairer(user)
+        if self.scenario == "bad_decompose":
+            return self._bad_decompose(user)
+        if self.scenario == "deferred_retry":
+            return self._deferred_retry(user)
+        if self.scenario == "slow_test":
+            return self._slow_test(user)
+        if self.scenario == "unknown_tool":
+            return self._unknown_tool(user)
         # v0.3 harness prompts (decompose / task-check / verify-done)
         if "Break this goal down" in user:
             return (

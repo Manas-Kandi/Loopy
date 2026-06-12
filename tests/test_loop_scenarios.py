@@ -264,5 +264,61 @@ class TestAcceptanceAndDefaultMock(unittest.TestCase):
             cleanup(project)
 
 
+class TestEvidenceDrivenGuards(unittest.TestCase):
+    def test_bad_decomposition_is_sanitized_and_retried(self):
+        project = make_run("Python progress bar", "mock/bad_decompose")
+        try:
+            entries = run_loop(project, max_iterations=1)
+            decompose = events(entries, "decompose")[0]
+            self.assertTrue(decompose["errors"], "bad items should be logged")
+            tasks = (project / "TASKS.md").read_text()
+            criteria = (project / "ACCEPTANCE.md").read_text()
+            self.assertNotIn("virtual environment", tasks.lower())
+            self.assertNotIn(".gitignore", tasks)
+            self.assertNotIn("flake8", criteria.lower())
+            self.assertIn("src/progress_bar.py", tasks)
+        finally:
+            cleanup(project)
+
+    def test_deferred_task_selection_is_rewritten_to_open_task(self):
+        project = make_run("Greeting tool", "mock/deferred_retry",
+                           {"max_task_failures": 1, "repair_attempts": 0})
+        try:
+            entries = run_loop(project, max_iterations=3)
+            iters = iteration_entries(entries)
+            self.assertGreaterEqual(len(iters), 2)
+            self.assertEqual(iters[0]["task_id"], 1)
+            self.assertFalse(iters[0]["validation_passed"])
+            self.assertEqual(iters[1]["task_id"], 2, iters[1]["subtask"])
+            self.assertNotIn("TASK T1", iters[1]["subtask"])
+            tasks = (project / "TASKS.md").read_text()
+            self.assertIn("[!] T1", tasks)
+        finally:
+            cleanup(project)
+
+    def test_slow_test_guard_classifies_failure(self):
+        project = make_run("Greeting tool", "mock/slow_test", {"repair_attempts": 0})
+        try:
+            entries = run_loop(project, max_iterations=3)
+            slow = [e for e in iteration_entries(entries)
+                    if e.get("failure_kind") == "slow_test"]
+            self.assertTrue(slow, entries)
+            self.assertIn("slow_test", slow[0]["errors"][0])
+        finally:
+            cleanup(project)
+
+    def test_unknown_tool_request_fails_iteration(self):
+        project = make_run("Greeting tool", "mock/unknown_tool")
+        try:
+            entries = run_loop(project, max_iterations=2)
+            iters = iteration_entries(entries)
+            self.assertTrue(iters)
+            self.assertFalse(iters[0]["validation_passed"])
+            self.assertEqual(iters[0]["failure_kind"], "tool")
+            self.assertIn("unknown tool requested", iters[0]["errors"][0])
+        finally:
+            cleanup(project)
+
+
 if __name__ == "__main__":
     unittest.main()

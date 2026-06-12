@@ -12,6 +12,7 @@ import py_compile
 import re
 import subprocess
 import sys
+import ast
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -25,6 +26,9 @@ class ValidationResult:
     errors: list[str] = field(default_factory=list)
     tests_ran: int = 0
     tests_failed: list[str] = field(default_factory=list)
+    failure_kind: str = ""
+    error_excerpt: str = ""
+    error_signature: str = ""
 
 
 def run_sandboxed(
@@ -51,8 +55,19 @@ def run_sandboxed(
             capture_output=True, text=True, timeout=timeout,
             stdin=subprocess.DEVNULL,
         )
-    except subprocess.TimeoutExpired:
-        return -1, f"timed out after {timeout}s"
+    except subprocess.TimeoutExpired as e:
+        pieces = []
+        for part in (getattr(e, "stdout", None), getattr(e, "stderr", None),
+                     getattr(e, "output", None)):
+            if not part:
+                continue
+            if isinstance(part, bytes):
+                pieces.append(part.decode(errors="replace"))
+            else:
+                pieces.append(str(part))
+        excerpt = "\n".join(pieces).strip()
+        return -1, (f"timed out after {timeout}s"
+                    + (f"\nPartial output:\n{excerpt[-3000:]}" if excerpt else ""))
     output = ((result.stdout or "") + ("\n" + result.stderr if result.stderr else "")).strip()
     return result.returncode, output
 
@@ -79,8 +94,80 @@ def _entry_point(project_dir: Path) -> Path | None:
     return None
 
 
-def _tail(text: str, n: int = 5) -> str:
+def _tail(text: str, n: int = 8) -> str:
     return " | ".join(text.strip().splitlines()[-n:])
+
+
+def _failure_excerpt(text: str, max_chars: int = 4000) -> str:
+    """Keep the actionable part of unittest/subprocess output."""
+    stripped = text.strip()
+    if not stripped:
+        return ""
+    blocks = re.findall(
+        r"=+\n(?:ERROR|FAIL): .*?(?=\n=+\n|\n-+\nRan \d+ tests?|\Z)",
+        stripped,
+        flags=re.S,
+    )
+    footer = ""
+    m = re.search(r"-+\nRan \d+ tests?.*?(?:FAILED .*|OK)\s*$", stripped, flags=re.S)
+    if m:
+        footer = m.group(0)
+    if blocks:
+        excerpt = "\n\n".join(blocks[:2] + ([footer] if footer else []))
+        return excerpt[-max_chars:]
+    return stripped[-max_chars:]
+
+
+def _signature(text: str) -> str:
+    s = re.sub(r"'[^']*'|\"[^\"]*\"", "_", str(text))
+    s = re.sub(r"/\S+", "_", s)
+    s = re.sub(r"\d+", "_", s)
+    return s.strip().lower()[:300]
+
+
+def _slow_test_errors(project_dir: Path, threshold: float = 0.5) -> list[str]:
+    """Static guard for obvious self-defeating tests."""
+    errors = []
+    for p in sorted((project_dir / "tests").glob("test_*.py")):
+        try:
+            source = p.read_text()
+        except (OSError, UnicodeDecodeError):
+            continue
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                name = ""
+                if isinstance(node.func, ast.Attribute):
+                    name = node.func.attr
+                    owner = getattr(node.func.value, "id", "")
+                    full = f"{owner}.{name}" if owner else name
+                elif isinstance(node.func, ast.Name):
+                    full = node.func.id
+                else:
+                    full = ""
+                if full in {"time.sleep", "sleep"} and node.args:
+                    arg = node.args[0]
+                    if isinstance(arg, ast.Constant) and isinstance(arg.value, (int, float)):
+                        if float(arg.value) > threshold:
+                            rel = p.relative_to(project_dir)
+                            errors.append(
+                                f"slow_test: {rel} calls {full}({arg.value}) "
+                                f"above {threshold}s threshold"
+                            )
+                if isinstance(node.func, ast.Attribute) and node.func.attr in {
+                    "assertGreater", "assertGreaterEqual", "assertTrue"
+                }:
+                    text = ast.get_source_segment(source, node) or ""
+                    if any(term in text for term in ("elapsed", "time.time", "seconds")):
+                        rel = p.relative_to(project_dir)
+                        errors.append(
+                            f"slow_test: {rel} asserts wall-clock timing; "
+                            "tests must be fast and deterministic"
+                        )
+    return errors
 
 
 def _import_check(project_dir: Path, written: list[Path], timeout: float, allow_network: bool) -> list[str]:
@@ -101,7 +188,7 @@ def _import_check(project_dir: Path, written: list[Path], timeout: float, allow_
         )
         rc, out = run_sandboxed(project_dir, [sys.executable, "-c", code], timeout, allow_network)
         if rc != 0:
-            errors.append(f"{rel}: import/exec failed: {_tail(out, 3)}")
+            errors.append(f"{rel}: import/exec failed: {_failure_excerpt(out, 1500)}")
     return errors
 
 
@@ -112,7 +199,7 @@ def _run_entry(project_dir: Path, script: Path, timeout: float, allow_network: b
         timeout, allow_network,
     )
     if rc != 0:
-        return [f"{script.name}: exit {rc}: {_tail(out)}"]
+        return [f"{script.name}: exit {rc}: {_failure_excerpt(out, 1500)}"]
     return []
 
 
@@ -132,7 +219,7 @@ def _run_tests(project_dir: Path, timeout: float, allow_network: bool) -> tuple[
     m = re.search(r"Ran (\d+) tests?", out)
     ran = int(m.group(1)) if m else 0
     if rc != 0:
-        return ran, [f"tests: exit {rc}: {_tail(out)}"]
+        return ran, [f"tests: exit {rc}: {_failure_excerpt(out)}"]
     return ran, []
 
 
@@ -177,14 +264,36 @@ def validate(
             errors = _run_entry(project_dir, entry, timeout, allow_network)
             detail_parts.append(f"ran {entry.relative_to(project_dir)}")
         if run_tests:
-            tests_ran, tests_failed = _run_tests(project_dir, timeout, allow_network)
-            if tests_ran or tests_failed:
-                detail_parts.append(f"{tests_ran} tests")
-            errors.extend(tests_failed)
+            slow_errors = _slow_test_errors(project_dir)
+            if slow_errors:
+                errors.extend(slow_errors)
+            else:
+                tests_ran, tests_failed = _run_tests(project_dir, timeout, allow_network)
+                if tests_ran or tests_failed:
+                    detail_parts.append(f"{tests_ran} tests")
+                errors.extend(tests_failed)
+    first_error = errors[0] if errors else ""
+    failure_kind = ""
+    if errors:
+        if "timed out after" in first_error:
+            failure_kind = "timeout"
+        elif first_error.startswith("slow_test:"):
+            failure_kind = "slow_test"
+        elif first_error.startswith("tests:"):
+            failure_kind = "tests"
+        elif "import/exec failed" in first_error:
+            failure_kind = "import"
+        elif "exit " in first_error:
+            failure_kind = "entry"
+        else:
+            failure_kind = "compile"
     return ValidationResult(
         passed=not errors,
         detail=" + ".join(detail_parts),
         errors=errors,
         tests_ran=tests_ran,
         tests_failed=tests_failed,
+        failure_kind=failure_kind,
+        error_excerpt=_failure_excerpt(first_error),
+        error_signature=_signature(first_error),
     )

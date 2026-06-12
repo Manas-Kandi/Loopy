@@ -44,6 +44,25 @@ STATUS_IN_PROGRESS = "~"
 STATUS_DONE = "x"
 STATUS_DEFERRED = "!"
 
+BAD_DECOMPOSITION_PATTERNS = (
+    "venv",
+    "virtual environment",
+    "activate",
+    ".gitignore",
+    "pip install",
+    "npm install",
+    "package install",
+    "install dependencies",
+    "flake8",
+    "pytest",
+)
+
+ROOT_WRITE_PATTERNS = (
+    "root",
+    "project root",
+    "repo root",
+)
+
 
 @dataclass
 class Task:
@@ -151,6 +170,51 @@ def parse_decomposition(text: str) -> tuple[list[str], list[str]]:
     return tasks, criteria
 
 
+def _mentions_forbidden_path(text: str) -> bool:
+    """True when a generated task points at an obvious non-writable file/path."""
+    lowered = text.lower()
+    if any(p in lowered for p in ROOT_WRITE_PATTERNS):
+        return True
+    paths = re.findall(r"`([^`]+)`|(?:^|\s)([A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+)", text)
+    for quoted, bare in paths:
+        candidate = (quoted or bare).strip()
+        if not candidate or "/" not in candidate:
+            continue
+        first = candidate.split("/", 1)[0]
+        if first not in {"src", "tests", "tools"}:
+            return True
+    return False
+
+
+def sanitize_decomposition(
+    goal: str,
+    tasks: list[str],
+    criteria: list[str],
+) -> tuple[list[str], list[str], list[str]]:
+    """Drop generated work items that violate harness constraints.
+
+    The goal is allowed to explicitly request unusual setup. Otherwise,
+    decomposition must stay inside the write sandbox and stdlib test harness.
+    Returns (tasks, criteria, rejection reasons).
+    """
+    goal_l = goal.lower()
+    rejections: list[str] = []
+
+    def keep(kind: str, text: str) -> bool:
+        lowered = text.lower()
+        hits = [p for p in BAD_DECOMPOSITION_PATTERNS
+                if p in lowered and p not in goal_l]
+        if hits or (_mentions_forbidden_path(text) and "root" not in goal_l):
+            reason = ", ".join(hits) if hits else "non-writable/root path"
+            rejections.append(f"{kind}: {text} ({reason})")
+            return False
+        return True
+
+    clean_tasks = [t for t in tasks if keep("TASK", t)]
+    clean_criteria = [c for c in criteria if keep("CRITERION", c)]
+    return clean_tasks, clean_criteria, rejections
+
+
 def mark_status(project_dir: Path, num: int, status: str) -> None:
     tl = load_tasks(project_dir)
     task = tl.get(num)
@@ -177,11 +241,21 @@ def tasks_for_prompt(project_dir: Path) -> str:
     tl = load_tasks(project_dir)
     if not tl.tasks:
         return ""
-    lines = []
+    lines = ["Eligible open tasks:"]
+    open_lines = []
+    deferred_lines = []
     for t in sorted(tl.tasks, key=lambda t: t.num):
         label = {STATUS_TODO: "open", STATUS_IN_PROGRESS: "in progress",
                  STATUS_DONE: "DONE", STATUS_DEFERRED: "deferred"}.get(t.status, "open")
-        lines.append(f"  T{t.num} ({label}): {t.text}")
+        line = f"  T{t.num} ({label}): {t.text}"
+        if t.status == STATUS_DEFERRED:
+            deferred_lines.append(f"  T{t.num} (deferred, not eligible): {t.text}")
+        else:
+            open_lines.append(line)
+    lines.extend(open_lines or ["  (none)"])
+    if deferred_lines:
+        lines.append("Deferred tasks (not eligible unless verify-done creates a new corrective task):")
+        lines.extend(deferred_lines)
     return "\n".join(lines)
 
 
@@ -192,12 +266,19 @@ def criteria_for_prompt(project_dir: Path) -> str:
 
 def parse_task_ref(subtask: str, tl: TaskList) -> int:
     """Pull a leading 'TASK Tn:' reference out of a planner reply.
-    Returns the task number, or 0 if missing/unknown (drift is data, not fatal)."""
+    Returns the task number only when it is known and open; otherwise 0."""
     m = re.match(r"\s*TASK\s+T?(\d+)\s*:?", subtask, re.IGNORECASE)
     if not m:
         return 0
     num = int(m.group(1))
-    return num if tl.get(num) else 0
+    task = tl.get(num)
+    return num if task and task.open else 0
+
+
+def parse_task_ref_num(subtask: str) -> int:
+    """Return the mentioned task number even if unknown/deferred."""
+    m = re.match(r"\s*TASK\s+T?(\d+)\s*:?", subtask, re.IGNORECASE)
+    return int(m.group(1)) if m else 0
 
 
 def strip_task_ref(subtask: str) -> str:
