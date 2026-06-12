@@ -226,7 +226,7 @@ class MockBackend(Backend):
                 "CRITERION: running the entry point exits 0\n"
             )
         if "First line: YES or NO" in user:
-            return "NO — not complete."
+            return "YES — complete."
         if "one PASS/FAIL line" in user:
             return "FAIL: C1 — not done\n"
         if "single most useful next step" in user:
@@ -235,7 +235,7 @@ class MockBackend(Backend):
                 return "Create src/main.py with a main() function that prints a greeting."
             return "Add the feature module in src/feature.py."
         _, _, sub = user.partition("SUB-TASK FOR THIS ITERATION:")
-        if "src/main.py" in sub:
+        if "src/main.py" in sub or "entry point" in sub or "prints a greeting" in sub:
             return (
                 "SUMMARY: Created src/main.py with a greeting.\n"
                 "FILE: src/main.py\n"
@@ -476,6 +476,43 @@ class MockBackend(Backend):
             "RUN_TOOL: flake8 tests/\n"
         )
 
+    def _jump_ahead(self, user: str) -> str:
+        if "Break this goal down" in user:
+            return (
+                "TASK: Create src/main.py with a main() function.\n"
+                "TASK: Add tests/test_main.py for main.\n"
+                "CRITERION: unittest discovery passes\n"
+            )
+        if "First line: YES or NO" in user:
+            return "YES — complete."
+        if "single most useful next step" in user:
+            return "TASK T2: Add tests/test_main.py for main."
+        _, _, sub = user.partition("SUB-TASK FOR THIS ITERATION:")
+        if "src/main.py" in sub:
+            return (
+                "SUMMARY: Created src/main.py.\n"
+                "FILE: src/main.py\n"
+                "```python\n"
+                "def main():\n"
+                "    return 'hello'\n\n"
+                "if __name__ == '__main__':\n"
+                "    print(main())\n"
+                "```\n"
+            )
+        return (
+            "SUMMARY: Added main tests.\n"
+            "FILE: tests/test_main.py\n"
+            "```python\n"
+            "import unittest\n"
+            "from src.main import main\n\n"
+            "class TestMain(unittest.TestCase):\n"
+            "    def test_main(self):\n"
+            "        self.assertEqual(main(), 'hello')\n\n"
+            "if __name__ == '__main__':\n"
+            "    unittest.main()\n"
+            "```\n"
+        )
+
     def _plan(self, user: str) -> str:
         if "You are repeating yourself" in user:
             return "Create a helper tool tools/line_count.py that counts lines of source code."
@@ -532,6 +569,8 @@ class MockBackend(Backend):
             return self._unknown_tool(user)
         if self.scenario == "tests_fail_unknown_tool":
             return self._tests_fail_and_unknown_tool(user)
+        if self.scenario == "jump_ahead":
+            return self._jump_ahead(user)
         # v0.3 harness prompts (decompose / task-check / verify-done)
         if "Break this goal down" in user:
             return (
@@ -542,8 +581,7 @@ class MockBackend(Backend):
                 "CRITERION: tests in tests/ pass\n"
             )
         if "First line: YES or NO" in user:
-            # default mock keeps tasks open so the v0.2 script plays out fully
-            return "NO — keep building."
+            return "YES — complete."
         if "one PASS/FAIL line" in user:
             return "PASS: C1\nPASS: C2\n"
         if "single most useful next step" in user:

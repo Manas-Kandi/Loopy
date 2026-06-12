@@ -148,15 +148,21 @@ def _slow_test_errors(project_dir: Path, threshold: float = 0.5) -> list[str]:
                     full = node.func.id
                 else:
                     full = ""
-                if full in {"time.sleep", "sleep"} and node.args:
-                    arg = node.args[0]
-                    if isinstance(arg, ast.Constant) and isinstance(arg.value, (int, float)):
-                        if float(arg.value) > threshold:
-                            rel = p.relative_to(project_dir)
-                            errors.append(
-                                f"slow_test: {rel} calls {full}({arg.value}) "
-                                f"above {threshold}s threshold"
-                            )
+                if full in {"time.sleep", "sleep"}:
+                    rel = p.relative_to(project_dir)
+                    rendered = ast.get_source_segment(source, node) or f"{full}(...)"
+                    errors.append(
+                        f"slow_test: {rel} calls {rendered}; tests must not sleep"
+                    )
+                    continue
+                if full in {"time.time", "time.monotonic", "time.perf_counter"}:
+                    rel = p.relative_to(project_dir)
+                    rendered = ast.get_source_segment(source, node) or f"{full}()"
+                    errors.append(
+                        f"slow_test: {rel} calls {rendered}; inject a clock or use "
+                        "fixed timestamps in tests"
+                    )
+                    continue
                 if isinstance(node.func, ast.Attribute) and node.func.attr in {
                     "assertGreater", "assertGreaterEqual", "assertTrue"
                 }:

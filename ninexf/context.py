@@ -26,6 +26,7 @@ MIN_PARTIAL_BUDGET = 600  # don't bother partial-rendering into a sliver of budg
 SKIP_DIRS = {".git", "__pycache__", ".venv", "node_modules"}
 SKIP_FILES = {LOG_FILENAME, STOP_FILENAME, "REPORT.md", "state.json",
               "TASKS.md", "ACCEPTANCE.md",  # tasks/criteria get dedicated prompt sections
+              "CONTRACT.md",
               "NOTES.md"}  # notes get their own prompt section too
 CONTENT_DIRS = ("src", "tests", "tools")
 NOTES_FILENAME = "NOTES.md"

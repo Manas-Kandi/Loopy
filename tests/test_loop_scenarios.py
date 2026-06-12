@@ -255,7 +255,7 @@ class TestAcceptanceAndDefaultMock(unittest.TestCase):
         try:
             entries = run_loop(project, max_iterations=6)
             iters = iteration_entries(entries)
-            self.assertGreaterEqual(len(iters), 5)
+            self.assertGreaterEqual(len(iters), 4)
             # the scripted broken iteration then the fix
             self.assertFalse(iters[1]["validation_passed"])
             self.assertTrue(iters[2]["validation_passed"])
@@ -273,10 +273,25 @@ class TestEvidenceDrivenGuards(unittest.TestCase):
             self.assertTrue(decompose["errors"], "bad items should be logged")
             tasks = (project / "TASKS.md").read_text()
             criteria = (project / "ACCEPTANCE.md").read_text()
+            contract = (project / "CONTRACT.md").read_text()
             self.assertNotIn("virtual environment", tasks.lower())
             self.assertNotIn(".gitignore", tasks)
             self.assertNotIn("flake8", criteria.lower())
             self.assertIn("src/progress_bar.py", tasks)
+            self.assertIn("PROJECT CONTRACT", contract.upper())
+            self.assertIn("Tests must be deterministic", contract)
+        finally:
+            cleanup(project)
+
+    def test_queued_task_selection_is_rewritten_to_next_task(self):
+        project = make_run("Greeting tool", "mock/jump_ahead")
+        try:
+            entries = run_loop(project, max_iterations=2)
+            iters = iteration_entries(entries)
+            self.assertTrue(iters)
+            self.assertEqual(iters[0]["task_id"], 1)
+            self.assertIn("TASK T1", iters[0]["subtask"])
+            self.assertNotIn("TASK T2", iters[0]["subtask"])
         finally:
             cleanup(project)
 

@@ -166,7 +166,7 @@ def commit_diff(d: Path, commit: str) -> dict:
     try:
         out = subprocess.run(
             ["git", "show", commit, "--format=%h %s", "--unified=3", "--",
-             "src", "tests", "tools", "TASKS.md", "ACCEPTANCE.md", "NOTES.md"],
+             "src", "tests", "tools", "TASKS.md", "ACCEPTANCE.md", "CONTRACT.md", "NOTES.md"],
             cwd=d, capture_output=True, text=True, timeout=15,
         )
     except (OSError, subprocess.TimeoutExpired) as e:
@@ -218,7 +218,7 @@ def diagnostic_bundle(d: Path) -> dict:
     ))
     for rel in (
         GOAL_FILENAME, CONFIG_FILENAME, "state.json", "TASKS.md",
-        "ACCEPTANCE.md", "NOTES.md", "loop_log.jsonl", "run.out",
+        "ACCEPTANCE.md", "CONTRACT.md", "NOTES.md", "loop_log.jsonl", "run.out",
     ):
         p = d / rel
         if p.exists():

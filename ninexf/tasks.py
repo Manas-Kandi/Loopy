@@ -57,6 +57,12 @@ BAD_DECOMPOSITION_PATTERNS = (
     "pytest",
 )
 
+BAD_CRITERION_PATTERNS = (
+    "created and empty",
+    "exists and is empty",
+    "file is empty",
+)
+
 ROOT_WRITE_PATTERNS = (
     "root",
     "project root",
@@ -90,6 +96,15 @@ class TaskList:
 
     def open_tasks(self) -> list[Task]:
         return [t for t in self.tasks if t.open]
+
+    def eligible_task(self) -> Task | None:
+        """The next task the planner may execute.
+
+        TASKS.md is ordered work. Allowing arbitrary open tasks lets small
+        models jump ahead to tests or polish before the core API exists, which
+        was a major Run4 failure mode.
+        """
+        return next((t for t in sorted(self.tasks, key=lambda t: t.num) if t.open), None)
 
     def all_resolved(self) -> bool:
         return bool(self.tasks) and not self.open_tasks()
@@ -215,6 +230,9 @@ def sanitize_decomposition(
         lowered = text.lower()
         hits = [p for p in BAD_DECOMPOSITION_PATTERNS
                 if p in lowered and p not in goal_l]
+        if kind == "CRITERION":
+            hits.extend(p for p in BAD_CRITERION_PATTERNS
+                        if p in lowered and p not in goal_l)
         if hits or (_mentions_forbidden_path(text) and "root" not in goal_l):
             reason = ", ".join(hits) if hits else "non-writable/root path"
             rejections.append(f"{kind}: {text} ({reason})")
@@ -252,8 +270,14 @@ def tasks_for_prompt(project_dir: Path) -> str:
     tl = load_tasks(project_dir)
     if not tl.tasks:
         return ""
-    lines = ["Eligible open tasks:"]
-    open_lines = []
+    eligible = tl.eligible_task()
+    lines = ["Eligible next task:"]
+    if eligible:
+        status = "in progress" if eligible.status == STATUS_IN_PROGRESS else "open"
+        lines.append(f"  T{eligible.num} ({status}): {eligible.text}")
+    else:
+        lines.append("  (none)")
+    queued_lines = []
     deferred_lines = []
     for t in sorted(tl.tasks, key=lambda t: t.num):
         label = {STATUS_TODO: "open", STATUS_IN_PROGRESS: "in progress",
@@ -261,9 +285,15 @@ def tasks_for_prompt(project_dir: Path) -> str:
         line = f"  T{t.num} ({label}): {t.text}"
         if t.status == STATUS_DEFERRED:
             deferred_lines.append(f"  T{t.num} (deferred, not eligible): {t.text}")
+        elif eligible and t.num == eligible.num:
+            continue
+        elif t.open:
+            queued_lines.append(f"  T{t.num} (queued, not eligible yet): {t.text}")
         else:
-            open_lines.append(line)
-    lines.extend(open_lines or ["  (none)"])
+            queued_lines.append(line)
+    if queued_lines:
+        lines.append("Queued/resolved tasks:")
+        lines.extend(queued_lines)
     if deferred_lines:
         lines.append("Deferred tasks (not eligible unless verify-done creates a new corrective task):")
         lines.extend(deferred_lines)
@@ -277,13 +307,14 @@ def criteria_for_prompt(project_dir: Path) -> str:
 
 def parse_task_ref(subtask: str, tl: TaskList) -> int:
     """Pull a leading 'TASK Tn:' reference out of a planner reply.
-    Returns the task number only when it is known and open; otherwise 0."""
+    Returns the task number only when it is the current eligible task;
+    otherwise 0."""
     m = re.match(r"\s*TASK\s+T?(\d+)\s*:?", subtask, re.IGNORECASE)
     if not m:
         return 0
     num = int(m.group(1))
-    task = tl.get(num)
-    return num if task and task.open else 0
+    eligible = tl.eligible_task()
+    return num if eligible and eligible.num == num else 0
 
 
 def parse_task_ref_num(subtask: str) -> int:

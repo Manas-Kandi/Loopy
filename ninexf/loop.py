@@ -27,6 +27,7 @@ from ninexf.candidates import (
     parse_critic_output, pick_winner,
 )
 from ninexf.config import Config
+from ninexf.contract import contract_for_prompt, save_contract
 from ninexf.context import (
     append_notes, build_snapshot, changes_since_last, history_for_context,
     notes_for_prompt, snapshot_codebase,
@@ -45,7 +46,7 @@ from ninexf.prompts import (
     DECOMPOSE_SYSTEM, DECOMPOSE_USER, DIAGNOSIS_SYSTEM, DIAGNOSIS_USER,
     EXECUTOR_SYSTEM, EXECUTOR_USER, EXPLORE_NUDGE_A, EXPLORE_NUDGE_B,
     MODE_BUILD, MODE_FIX, MODE_REVIEW, NO_TESTS_NOTE, NOTES_SECTION,
-    PLANNER_SYSTEM, PLANNER_USER, REPAIR_NOTE, REVISE_NOTE, STUCK_NUDGE,
+    CONTRACT_SECTION, PLANNER_SYSTEM, PLANNER_USER, REPAIR_NOTE, REVISE_NOTE, STUCK_NUDGE,
     TASK_ELIGIBILITY_NUDGE,
     TASK_CHECK_SYSTEM, TASK_CHECK_USER, TASKS_SECTION,
     VERIFY_DONE_SYSTEM, VERIFY_DONE_USER,
@@ -188,6 +189,8 @@ class LoopRunner:
             mode_instructions += NO_TESTS_NOTE
         tasks = tasks_for_prompt(self.project_dir)
         tasks_section = TASKS_SECTION.format(tasks=tasks) if tasks else ""
+        contract = contract_for_prompt(self.project_dir)
+        contract_section = CONTRACT_SECTION.format(contract=contract) if contract else ""
         notes = notes_for_prompt(self.project_dir) if self.config.notes_enabled else ""
         notes_section = NOTES_SECTION.format(notes=notes) if notes else ""
         entries = [e for e in read_entries(self.project_dir) if e.get("event") == "iteration"]
@@ -197,6 +200,7 @@ class LoopRunner:
         return PLANNER_USER.format(
             goal=self.goal, codebase=codebase, history=history,
             tools=tools, mode_instructions=mode_instructions,
+            contract_section=contract_section,
             tasks_section=tasks_section, notes_section=notes_section,
             changes_section=changes_section,
         )
@@ -223,14 +227,17 @@ class LoopRunner:
         open_tasks = tl.open_tasks()
         if not open_tasks:
             return ""
+        eligible = tl.eligible_task()
         num = parse_task_ref_num(subtask)
         if not num:
-            return ""
+            return f"planner did not name the eligible task T{eligible.num}" if eligible else ""
         task = tl.get(num)
         if task is None:
             return f"T{num} is not in TASKS.md"
-        if not task.open:
-            return f"T{num} is deferred or already resolved"
+        if not eligible or task.num != eligible.num:
+            if not task.open:
+                return f"T{num} is deferred or already resolved"
+            return f"T{num} is queued; the eligible next task is T{eligible.num}"
         return ""
 
     def _ensure_eligible_plan(self, base: str, subtask: str) -> str:
@@ -247,7 +254,10 @@ class LoopRunner:
         tl = load_tasks(self.project_dir)
         open_tasks = tl.open_tasks()
         if open_tasks:
-            t = open_tasks[0]
+            t = tl.eligible_task() or open_tasks[0]
+            if not parse_task_ref_num(retry):
+                instruction = strip_task_ref(retry or subtask)
+                return f"TASK T{t.num}: {instruction}"
             return f"TASK T{t.num}: {t.text}"
         return retry
 
@@ -363,8 +373,11 @@ class LoopRunner:
                 self.project_dir, cfg.snapshot_budget, subtask=plan,
                 entries=prev_entries, strategy=cfg.context_strategy)
             notes = notes_for_prompt(self.project_dir) if cfg.notes_enabled else ""
+            contract = contract_for_prompt(self.project_dir)
+            contract_section = CONTRACT_SECTION.format(contract=contract) if contract else ""
             executor_user = EXECUTOR_USER.format(
                 goal=self.goal, codebase=exec_codebase, subtask=plan, tools=tools,
+                contract_section=contract_section,
                 notes_section=NOTES_SECTION.format(notes=notes) if notes else "")
             ev = self._execute_once(iteration, plan, executor_user, None,
                                     log_violations=False)
@@ -462,8 +475,9 @@ class LoopRunner:
                        TaskList(tasks=[Task(num=i, text=t)
                                        for i, t in enumerate(task_texts, start=1)]))
             save_criteria(self.project_dir, criteria)
+            save_contract(self.project_dir, self.goal, task_texts, criteria)
             append_activity(self.project_dir,
-                            f"created TASKS.md and ACCEPTANCE.md ({len(task_texts)} tasks)",
+                            f"created TASKS.md, ACCEPTANCE.md, and CONTRACT.md ({len(task_texts)} tasks)",
                             iteration=iteration, kind="write")
             summary = (f"decomposed goal into {len(task_texts)} tasks "
                        f"and {len(criteria)} acceptance criteria")
@@ -501,10 +515,12 @@ class LoopRunner:
         if task is None:
             return False
         codebase = snapshot_codebase(self.project_dir, self.config.snapshot_budget)
+        contract = contract_for_prompt(self.project_dir) or "(none)"
         try:
             reply = self.backend.complete(
                 TASK_CHECK_SYSTEM,
-                TASK_CHECK_USER.format(codebase=codebase, num=task.num, text=task.text),
+                TASK_CHECK_USER.format(codebase=codebase, contract=contract,
+                                       num=task.num, text=task.text),
             )
         except BackendError as e:
             errors.append(f"task-check call failed: {e}")
@@ -542,6 +558,7 @@ class LoopRunner:
             raw = self.backend.complete(
                 VERIFY_DONE_SYSTEM,
                 VERIFY_DONE_USER.format(goal=self.goal, codebase=codebase,
+                                        contract=contract_for_prompt(self.project_dir) or "(none)",
                                         validation=validation_text,
                                         criteria=criteria_for_prompt(self.project_dir)),
             )
@@ -673,12 +690,13 @@ class LoopRunner:
         evidence = "\n".join(outcome.errors[:3])
         if outcome.error_excerpt and outcome.error_excerpt not in evidence:
             evidence += "\n\n" + outcome.error_excerpt
+        contract = contract_for_prompt(self.project_dir) or "(none)"
         try:
             return self.backend.complete(
                 DIAGNOSIS_SYSTEM,
                 DIAGNOSIS_USER.format(
                     goal=self.goal, codebase=codebase, history=history,
-                    subtask=subtask, errors=evidence[:5000],
+                    contract=contract, subtask=subtask, errors=evidence[:5000],
                 ),
             ).strip()[:2000]
         except BackendError:
@@ -776,10 +794,13 @@ class LoopRunner:
             self.project_dir, cfg.snapshot_budget, subtask=subtask,
             entries=prev_entries, strategy=cfg.context_strategy)
         notes = notes_for_prompt(self.project_dir) if cfg.notes_enabled else ""
+        contract = contract_for_prompt(self.project_dir)
+        contract_section = CONTRACT_SECTION.format(contract=contract) if contract else ""
         executor_user = EXECUTOR_USER.format(
             goal=self.goal, codebase=exec_codebase,
             subtask=strip_task_ref(subtask) if task_id else subtask,
             tools=tools,
+            contract_section=contract_section,
             notes_section=NOTES_SECTION.format(notes=notes) if notes else "")
 
         # best-of-N: sample candidates at varied temperatures, validate each

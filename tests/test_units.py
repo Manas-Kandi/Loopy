@@ -11,6 +11,7 @@ from unittest import mock
 from ninexf.backends import BackendError, _post_json, context_overflowed
 from ninexf.candidates import CandidateResult, parse_critic_output, pick_winner
 from ninexf.config import PRESETS, Config, load_config, write_config
+from ninexf.contract import contract_for_prompt, save_contract
 from ninexf.dashboard import _run_status
 from ninexf.fitness import best_state, final_state, fitness_of
 from ninexf.relevance import render_partial
@@ -55,13 +56,19 @@ class TestTasks(unittest.TestCase):
         self.assertEqual(parse_task_ref("just do x", tl), 0)
         self.assertEqual(strip_task_ref("TASK T3: do x"), "do x")
 
+    def test_task_ref_rejects_queued_tasks(self):
+        tl = TaskList(tasks=[Task(1, "first"), Task(2, "second")])
+        self.assertEqual(parse_task_ref("TASK T2: second", tl), 0)
+        self.assertEqual(parse_task_ref("TASK T1: first", tl), 1)
+
     def test_tasks_prompt_marks_deferred_ineligible(self):
         d = Path(tempfile.mkdtemp())
-        save_tasks(d, TaskList(tasks=[Task(1, "open"), Task(2, "blocked", "!")]))
+        save_tasks(d, TaskList(tasks=[Task(1, "open"), Task(2, "later"), Task(3, "blocked", "!")]))
         prompt = tasks_for_prompt(d)
-        self.assertIn("Eligible open tasks", prompt)
+        self.assertIn("Eligible next task", prompt)
         self.assertIn("T1 (open)", prompt)
-        self.assertIn("T2 (deferred, not eligible)", prompt)
+        self.assertIn("T2 (queued, not eligible yet)", prompt)
+        self.assertIn("T3 (deferred, not eligible)", prompt)
 
     def test_sanitize_bad_decomposition(self):
         tasks, criteria, rejected = sanitize_decomposition(
@@ -74,6 +81,7 @@ class TestTasks(unittest.TestCase):
             ],
             [
                 "Running `flake8 src` passes",
+                "The file `src/main.py` is created and empty",
                 "Running unittest discovery passes",
             ],
         )
@@ -90,6 +98,14 @@ class TestTasks(unittest.TestCase):
         self.assertEqual(tasks, ["Create src/main.py"])
         self.assertEqual(criteria, ["Running `python src/main.py` exits with code 0"])
         self.assertEqual(rejected, [])
+
+    def test_contract_for_prompt(self):
+        d = Path(tempfile.mkdtemp())
+        save_contract(d, "Build a widget", ["Create src/widget.py"], ["tests pass"])
+        contract = contract_for_prompt(d)
+        self.assertIn("Build a widget", contract)
+        self.assertIn("Create src/widget.py", contract)
+        self.assertIn("Tests must be deterministic", contract)
 
     def test_verify_output(self):
         passed, failed = parse_verify_output(
@@ -334,6 +350,41 @@ class TestValidationEvidence(unittest.TestCase):
         self.assertFalse(result.passed)
         self.assertEqual(result.failure_kind, "slow_test")
         self.assertIn("slow_test", result.errors[0])
+
+    def test_any_sleep_in_tests_is_rejected(self):
+        d = Path(tempfile.mkdtemp())
+        (d / "src").mkdir()
+        (d / "tests").mkdir()
+        (d / "tests" / "__init__.py").write_text("")
+        test = d / "tests" / "test_sleep.py"
+        test.write_text(
+            "import time\nimport unittest\n\n"
+            "class TestSleep(unittest.TestCase):\n"
+            "    def test_short_sleep(self):\n"
+            "        time.sleep(0.1)\n"
+            "        self.assertTrue(True)\n"
+        )
+        result = validate(d, [test], timeout=5, allow_network=True)
+        self.assertFalse(result.passed)
+        self.assertEqual(result.failure_kind, "slow_test")
+        self.assertIn("must not sleep", result.errors[0])
+
+    def test_wall_clock_calls_in_tests_are_rejected(self):
+        d = Path(tempfile.mkdtemp())
+        (d / "src").mkdir()
+        (d / "tests").mkdir()
+        (d / "tests" / "__init__.py").write_text("")
+        test = d / "tests" / "test_time.py"
+        test.write_text(
+            "import time\nimport unittest\n\n"
+            "class TestTime(unittest.TestCase):\n"
+            "    def test_now(self):\n"
+            "        self.assertGreaterEqual(time.time(), 0)\n"
+        )
+        result = validate(d, [test], timeout=5, allow_network=True)
+        self.assertFalse(result.passed)
+        self.assertEqual(result.failure_kind, "slow_test")
+        self.assertIn("wall-clock", "\n".join(result.errors))
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ Reply with the instruction only — no preamble, no numbering, no markdown."""
 PLANNER_USER = """\
 GOAL (the unchanging north star):
 {goal}
+{contract_section}
 {tasks_section}{notes_section}
 CURRENT CODEBASE:
 {codebase}
@@ -34,7 +35,12 @@ TASK LIST (work through the open tasks; the harness marks them done):
 
 Begin your reply with `TASK Tn:` naming which open task this step advances,
 then the instruction. Example: `TASK T3: Implement the move logic in src/mover.py`
-Only choose an eligible open task. Do not choose a deferred task.
+Only choose the eligible next task. Do not choose queued, done, or deferred tasks.
+"""
+
+CONTRACT_SECTION = """
+PROJECT CONTRACT (stable source of truth):
+{contract}
 """
 
 NOTES_SECTION = """
@@ -78,7 +84,7 @@ The proposed step targeted an ineligible or unknown task:
 {reason}
 
 Choose exactly one eligible open task from the task list and begin with
-`TASK Tn:`. Do not target deferred tasks.
+`TASK Tn:`. Do not target queued, done, or deferred tasks.
 """
 
 DIAGNOSIS_SYSTEM = """\
@@ -95,6 +101,9 @@ GOAL:
 
 CURRENT CODEBASE:
 {codebase}
+
+PROJECT CONTRACT:
+{contract}
 
 HISTORY:
 {history}
@@ -149,6 +158,8 @@ Rules:
   tests in tests/, helper scripts in tools/. Do not require virtualenvs,
   activation, package installs, root-level files, flake8, pytest, npm, pip,
   or any unavailable external tool unless the goal explicitly asks for it.
+- Do not require generated files to be empty; useful entry points and modules
+  should contain behavior.
 - One line per task/criterion. No other text."""
 
 DECOMPOSE_RETRY_NOTE = """
@@ -169,6 +180,9 @@ sentence of reasoning."""
 TASK_CHECK_USER = """\
 CURRENT CODEBASE:
 {codebase}
+
+PROJECT CONTRACT:
+{contract}
 
 TASK:
 T{num}: {text}
@@ -236,8 +250,11 @@ Files you wrote (their current, broken contents):
 Validation errors:
 {errors}
 
-Fix exactly these errors now. Rewrite the broken file(s) completely, changing
-as little else as possible. Same output format (SUMMARY + FILE blocks)."""
+Fix exactly these errors now while preserving the PROJECT CONTRACT. Prefer
+implementation fixes over weakening tests. Edit tests only if they are
+nondeterministic, contradict the contract, or assert the wrong behavior.
+Rewrite the broken file(s) completely, changing as little else as possible.
+Same output format (SUMMARY + FILE blocks)."""
 
 REVISE_NOTE = """
 
@@ -260,6 +277,9 @@ GOAL:
 
 CURRENT CODEBASE:
 {codebase}
+
+PROJECT CONTRACT:
+{contract}
 
 HARNESS VALIDATION RESULT:
 {validation}
@@ -295,12 +315,17 @@ Rules:
   external commands such as pytest, flake8, npm, pip, or shell commands as
   RUN_TOOL names.
 - Tests must be fast, deterministic, stdlib-only unittest tests. Do not write
-  tests that wait near the validation timeout, require pytest/flake8, or assert
-  multi-second wall-clock timing."""
+  tests that call time.sleep(), time.time(), or time.monotonic(); inject clocks
+  or use fixed numeric timestamps. Do not require pytest/flake8 or assert
+  wall-clock timing.
+- Follow the PROJECT CONTRACT. Do not duplicate canonical implementations.
+- Prefer implementation fixes over weakening tests. Edit tests only when they
+  are nondeterministic, contradict the contract, or assert the wrong behavior."""
 
 EXECUTOR_USER = """\
 GOAL:
 {goal}
+{contract_section}
 {notes_section}
 CURRENT CODEBASE:
 {codebase}
