@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import urllib.error
 import urllib.request
 
@@ -61,6 +62,10 @@ def _post_json(url: str, payload: dict, headers: dict, timeout: float = 300) -> 
         raise BackendError(f"HTTP {e.code} from {url}: {body}") from e
     except urllib.error.URLError as e:
         raise BackendError(f"cannot reach {url}: {e.reason}") from e
+    except (TimeoutError, socket.timeout) as e:
+        raise BackendError(f"timeout calling {url} after {timeout:g}s") from e
+    except json.JSONDecodeError as e:
+        raise BackendError(f"invalid JSON from {url}: {e}") from e
 
 
 class OllamaBackend(Backend):

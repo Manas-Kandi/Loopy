@@ -33,6 +33,8 @@ from ninexf.tasks import load_tasks
 COMMIT_RE = re.compile(r"^[0-9a-f]{6,40}$")
 MAX_DIFF_CHARS = 200_000
 MAX_ENTRIES = 300
+MAX_BUNDLE_CHARS = 900_000
+MAX_BUNDLE_FILE_CHARS = 120_000
 
 _PROCS: dict[str, subprocess.Popen] = {}  # dir -> spawned run process
 
@@ -79,6 +81,63 @@ def run_detail(d: Path) -> dict:
     entries = read_entries(d)
     iters = [e for e in entries if e.get("event") == "iteration"]
     state = read_state(d)
+    rendered_entries = [_chat_entry(e) for e in entries[-MAX_ENTRIES:]]
+    state_iter = int(state.get("iteration", 0) or 0)
+    state_mode = state.get("mode", "")
+    state_subtask = state.get("subtask", "")
+    latest_logged = max((e.get("iteration", 0) for e in entries), default=-1)
+    if state.get("running") and state_iter >= latest_logged and state_subtask:
+        if not any(e.get("event") == "live" and e.get("iteration") == state_iter
+                   for e in rendered_entries):
+            rendered_entries.append({
+                "event": "live",
+                "iteration": state_iter,
+                "timestamp": state.get("ts", ""),
+                "mode": state_mode or "running",
+                "subtask": state_subtask,
+                "summary": "in progress — waiting for the current model/tool call to finish",
+                "ok": False,
+                "detail": "",
+                "errors": [],
+                "files": [],
+                "commit": "",
+                "repairs": 0,
+                "repaired_ok": False,
+                "candidates": 0,
+                "chosen": 0,
+                "critic": "",
+                "stuck": [],
+                "regression": False,
+                "task_id": 0,
+                "acceptance": None,
+                "overflow": False,
+                "tool_runs": [],
+            })
+    for a in (state.get("activity") or [])[-80:]:
+        rendered_entries.append({
+            "event": "activity",
+            "iteration": int(a.get("iteration", 0) or 0),
+            "timestamp": a.get("ts", ""),
+            "mode": a.get("kind", "activity"),
+            "subtask": "",
+            "summary": a.get("message", ""),
+            "ok": True,
+            "detail": "",
+            "errors": [],
+            "files": [],
+            "commit": "",
+            "repairs": 0,
+            "repaired_ok": False,
+            "candidates": 0,
+            "chosen": 0,
+            "critic": "",
+            "stuck": [],
+            "regression": False,
+            "task_id": 0,
+            "acceptance": None,
+            "overflow": False,
+            "tool_runs": [],
+        })
     tl = load_tasks(d)
     done, total = tl.counts()
     return {
@@ -97,7 +156,7 @@ def run_detail(d: Path) -> dict:
         "tasks": [{"num": t.num, "text": t.text, "status": t.status} for t in tl.tasks],
         "tasks_done": done,
         "tasks_total": total,
-        "entries": [_chat_entry(e) for e in entries[-MAX_ENTRIES:]],
+        "entries": rendered_entries[-MAX_ENTRIES:],
     }
 
 
@@ -118,6 +177,81 @@ def commit_diff(d: Path, commit: str) -> dict:
     if len(text) > MAX_DIFF_CHARS:
         text = text[:MAX_DIFF_CHARS] + "\n... (diff truncated)"
     return {"commit": commit, "diff": text}
+
+
+def _read_for_bundle(path: Path, max_chars: int = MAX_BUNDLE_FILE_CHARS) -> str:
+    try:
+        text = path.read_text(errors="replace")
+    except (OSError, UnicodeDecodeError) as e:
+        return f"(unreadable: {e})\n"
+    if len(text) > max_chars:
+        return text[:max_chars] + f"\n... (truncated at {max_chars} chars)\n"
+    return text
+
+
+def _git_for_bundle(d: Path, args: list[str], max_chars: int = 80_000) -> str:
+    try:
+        out = subprocess.run(
+            ["git", *args], cwd=d, capture_output=True, text=True, timeout=20,
+        )
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return f"(git unavailable: {e})\n"
+    text = (out.stdout or "") + (("\nSTDERR:\n" + out.stderr) if out.stderr else "")
+    if len(text) > max_chars:
+        return text[:max_chars] + f"\n... (truncated at {max_chars} chars)\n"
+    return text or "(no output)\n"
+
+
+def diagnostic_bundle(d: Path) -> dict:
+    """A pasteable run bundle for asking another agent/person to diagnose it."""
+    if not (d / GOAL_FILENAME).exists():
+        return {"error": f"not a 9xf run: {d}"}
+    sections: list[tuple[str, str]] = []
+
+    def add(title: str, body: str) -> None:
+        sections.append((title, body.rstrip() + "\n"))
+
+    add("9XF DIAGNOSTIC BUNDLE", (
+        f"dir: {d}\n"
+        f"version: {__version__}\n"
+        "note: paste this whole bundle into a chat to diagnose the run.\n"
+    ))
+    for rel in (
+        GOAL_FILENAME, CONFIG_FILENAME, "state.json", "TASKS.md",
+        "ACCEPTANCE.md", "NOTES.md", "loop_log.jsonl", "run.out",
+    ):
+        p = d / rel
+        if p.exists():
+            add(rel, _read_for_bundle(p))
+        else:
+            add(rel, "(missing)\n")
+
+    add("git status --short", _git_for_bundle(d, ["status", "--short"]))
+    add("git log --oneline --decorate -n 80",
+        _git_for_bundle(d, ["log", "--oneline", "--decorate", "-n", "80"]))
+
+    file_roots = ["src", "tests", "tools", "acceptance"]
+    files = []
+    for root in file_roots:
+        base = d / root
+        if not base.is_dir():
+            continue
+        for p in sorted(base.rglob("*")):
+            if not p.is_file():
+                continue
+            if p.suffix in {".pyc", ".pyo"} or "__pycache__" in p.parts or p.name == ".DS_Store":
+                continue
+            files.append(p)
+    tree = "\n".join(str(p.relative_to(d)) for p in files) or "(no generated files)"
+    add("generated file tree", tree + "\n")
+    for p in files:
+        rel = str(p.relative_to(d))
+        add(f"FILE {rel}", _read_for_bundle(p))
+
+    text = "\n".join(f"===== {title} =====\n{body}" for title, body in sections)
+    if len(text) > MAX_BUNDLE_CHARS:
+        text = text[:MAX_BUNDLE_CHARS] + f"\n... (bundle truncated at {MAX_BUNDLE_CHARS} chars)\n"
+    return {"text": text, "chars": len(text)}
 
 
 def browse(path_str: str) -> dict:
@@ -191,8 +325,10 @@ def start_run(payload: dict) -> dict:
         cmd += ["--delay", str(float(payload["delay"]))]
     log = (d / "run.out").open("ab")
     try:
+        env = {**os.environ, "PYTHONUNBUFFERED": "1"}
         proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT,
-                                stdin=subprocess.DEVNULL, start_new_session=True)
+                                stdin=subprocess.DEVNULL, start_new_session=True,
+                                env=env)
     except OSError as e:
         return {"error": f"could not start the loop: {e}"}
     finally:
@@ -235,6 +371,8 @@ class AppHandler(BaseHTTPRequestHandler):
             elif url.path == "/api/diff":
                 self._json(commit_diff(Path(q.get("dir", "")).expanduser(),
                                        q.get("commit", "")))
+            elif url.path == "/api/export":
+                self._json(diagnostic_bundle(Path(q.get("dir", "")).expanduser()))
             elif url.path == "/api/browse":
                 self._json(browse(q.get("path", "")))
             elif url.path == "/api/models":

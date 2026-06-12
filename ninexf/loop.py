@@ -50,7 +50,7 @@ from ninexf.prompts import (
     TASK_CHECK_SYSTEM, TASK_CHECK_USER, TASKS_SECTION,
     VERIFY_DONE_SYSTEM, VERIFY_DONE_USER,
 )
-from ninexf.registry import write_state
+from ninexf.registry import append_activity, write_state
 from ninexf.sandbox import WRITABLE_DIRS, ContainmentViolation, safe_write
 from ninexf.stuck import detect_signals
 from ninexf.tasks import (
@@ -143,6 +143,8 @@ class LoopRunner:
 
     def _clean_shutdown(self, iteration: int, reason: str):
         print(f"[9xf] shutting down: {reason}")
+        append_activity(self.project_dir, f"shutting down: {reason}", iteration=iteration,
+                        kind="shutdown")
         try:
             self._maybe_restore_best(iteration)
         except Exception as e:
@@ -430,7 +432,11 @@ class LoopRunner:
         print(f"[9xf] iter {iteration} (decompose) breaking the goal into tasks")
         write_state(self.project_dir, running=True, iteration=iteration, mode="decompose",
                     subtask="(decomposing goal)", ts=now_iso())
+        append_activity(self.project_dir, "asking model to decompose the goal",
+                        iteration=iteration, kind="model")
         raw = self.backend.complete(DECOMPOSE_SYSTEM, DECOMPOSE_USER.format(goal=self.goal))
+        append_activity(self.project_dir, "parsing decomposition output",
+                        iteration=iteration)
         task_texts, criteria = parse_decomposition(raw)
         task_texts, criteria, rejections = sanitize_decomposition(
             self.goal, task_texts, criteria)
@@ -456,12 +462,17 @@ class LoopRunner:
                        TaskList(tasks=[Task(num=i, text=t)
                                        for i, t in enumerate(task_texts, start=1)]))
             save_criteria(self.project_dir, criteria)
+            append_activity(self.project_dir,
+                            f"created TASKS.md and ACCEPTANCE.md ({len(task_texts)} tasks)",
+                            iteration=iteration, kind="write")
             summary = (f"decomposed goal into {len(task_texts)} tasks "
                        f"and {len(criteria)} acceptance criteria")
         print(f"[9xf]   {summary}")
 
         commit_hash = ""
         if has_changes(self.project_dir):
+            append_activity(self.project_dir, "committing decomposition result",
+                            iteration=iteration, kind="git")
             commit_hash = commit_all(self.project_dir, f"[iter {iteration}] (decompose) {summary}")
         entry = LogEntry(
             iteration=iteration, timestamp=now_iso(), subtask="(decompose goal)",
@@ -596,20 +607,33 @@ class LoopRunner:
         log_violations=False during branch exploration, where appending log
         lines would diverge the JSONL across branches."""
         cfg = self.config
+        append_activity(self.project_dir, "asking model to write code",
+                        iteration=iteration, kind="model")
         raw = self.backend.complete(EXECUTOR_SYSTEM, executor_user, temperature=temperature)
         parsed = parse_executor_output(raw)
         outcome = ExecOutcome(parsed=parsed, errors=list(parsed.problems))
+        if parsed.files:
+            append_activity(self.project_dir,
+                            f"model proposed {len(parsed.files)} file write(s)",
+                            iteration=iteration)
         for rel_path, content in parsed.files.items():
             try:
+                append_activity(self.project_dir, f"writing {rel_path}",
+                                iteration=iteration, kind="write")
                 outcome.written.append(safe_write(self.project_dir, rel_path, content))
             except ContainmentViolation as v:
                 outcome.errors.append(str(v))
+                append_activity(self.project_dir, f"rejected write to {v.requested}",
+                                iteration=iteration, kind="error")
                 if log_violations:
                     append_entry(self.project_dir, LogEntry(
                         iteration=iteration, timestamp=now_iso(), subtask=subtask,
                         summary=f"containment violation: {v.requested!r}", event="violation",
                     ))
         if outcome.written:
+            append_activity(self.project_dir,
+                            f"validating {len(outcome.written)} written file(s)",
+                            iteration=iteration, kind="validate")
             result = validate(self.project_dir, outcome.written, cfg.validation_timeout,
                               cfg.allow_network, run_tests=cfg.run_tests)
             outcome.errors.extend(result.errors)
@@ -619,6 +643,11 @@ class LoopRunner:
             outcome.failure_kind = result.failure_kind
             outcome.error_signature = result.error_signature
             outcome.error_excerpt = result.error_excerpt
+            append_activity(self.project_dir,
+                            "validation passed" if result.passed else
+                            f"validation failed: {result.failure_kind or 'error'}",
+                            iteration=iteration,
+                            kind="validate" if result.passed else "error")
         else:
             outcome.validation_detail = "nothing written"
             if outcome.errors:
@@ -671,6 +700,8 @@ class LoopRunner:
         while (attempt < self.config.repair_attempts
                and (not outcome.validation_passed or outcome.errors)):
             attempt += 1
+            append_activity(self.project_dir, f"repair attempt {attempt}",
+                            iteration=iteration, kind="repair")
             if outcome.parsed.files:
                 dump = "\n".join(f"--- {path} ---\n{body}"
                                  for path, body in outcome.parsed.files.items())
@@ -705,6 +736,8 @@ class LoopRunner:
             return explored
         prev_entries = [e for e in read_entries(self.project_dir) if e.get("event") == "iteration"]
         prev_passed = bool(prev_entries and prev_entries[-1].get("validation_passed"))
+        append_activity(self.project_dir, "building context snapshot",
+                        iteration=iteration)
 
         # planner snapshot: before a subtask exists, the relevance query is the
         # open tasks plus whatever the loop just worked on
@@ -721,11 +754,15 @@ class LoopRunner:
             return self._run_verify(iteration)
 
         # 1. self-generate the sub-task (with one anti-stuck retry)
+        append_activity(self.project_dir, "asking planner for next step",
+                        iteration=iteration, kind="model")
         subtask, stuck_signals = self._plan(mode, codebase, history, tools)
         stuck_note = f", stuck: {'+'.join(stuck_signals)}" if stuck_signals else ""
         print(f"[9xf] iter {iteration} ({mode}{stuck_note}) subtask: {subtask}")
         write_state(self.project_dir, running=True, iteration=iteration, mode=mode,
                     subtask=subtask, ts=now_iso())
+        append_activity(self.project_dir, f"selected next step: {subtask[:160]}",
+                        iteration=iteration, kind="plan")
 
         # which TASKS.md task is this step targeting? (0 = none/unknown — drift is data)
         tl = load_tasks(self.project_dir)
@@ -787,6 +824,8 @@ class LoopRunner:
         diagnosis = ""
         if cfg.repair_attempts > 0 and (not outcome.validation_passed or outcome.errors):
             if self._should_diagnose(outcome):
+                append_activity(self.project_dir, "diagnosing repeated failure before repair",
+                                iteration=iteration, kind="diagnosis")
                 diagnosis = self._diagnose(subtask, outcome, exec_codebase, history)
                 executor_user += "\n\nDIAGNOSIS BEFORE REPAIR:\n" + diagnosis + "\n"
             outcome, repairs = self._repair_loop(iteration, subtask, executor_user, outcome)
@@ -821,6 +860,8 @@ class LoopRunner:
         if cfg.tools_enabled:
             dropped = 0
             for name, args in parsed.tool_runs[: cfg.max_tool_runs_per_iteration]:
+                append_activity(self.project_dir, f"running tool {name} {args}".strip(),
+                                iteration=iteration, kind="tool")
                 result = run_tool(self.project_dir, name, args,
                                   cfg.validation_timeout, cfg.allow_network)
                 tool_runs.append({"name": name, "args": args, "result": result})
@@ -885,6 +926,8 @@ class LoopRunner:
         commit_msg = f"[iter {iteration}] ({mode}/{status}) {subtask}\n\n{parsed.summary}"
         commit_hash = ""
         if has_changes(self.project_dir):
+            append_activity(self.project_dir, "committing iteration result",
+                            iteration=iteration, kind="git")
             commit_hash = commit_all(self.project_dir, commit_msg)
 
         entry = LogEntry(
@@ -928,6 +971,8 @@ class LoopRunner:
 
         # commit the log line itself so git history and log stay in lockstep
         if has_changes(self.project_dir):
+            append_activity(self.project_dir, "committing loop log entry",
+                            iteration=iteration, kind="git")
             commit_all(self.project_dir, f"[iter {iteration}] log entry")
         return entry
 
@@ -950,6 +995,8 @@ class LoopRunner:
             event="startup",
         ))
         write_state(self.project_dir, running=True, iteration=start, ts=now_iso())
+        append_activity(self.project_dir, f"run started with {cfg.model}",
+                        iteration=start, kind="startup")
         print(f"[9xf] goal: {self.goal}")
         print(f"[9xf] model: {cfg.model} | starting at iteration {start + 1}, cap {cap}"
               + (f" | time budget {budget_h}h" if deadline else ""))
@@ -982,10 +1029,16 @@ class LoopRunner:
                 backend_failures += 1
                 print(f"[9xf] iter {iteration} backend error ({backend_failures}/"
                       f"{MAX_CONSECUTIVE_BACKEND_FAILURES}): {e}")
+                append_activity(self.project_dir, f"backend error: {e}",
+                                iteration=iteration, kind="error")
                 append_entry(self.project_dir, LogEntry(
                     iteration=iteration, timestamp=now_iso(), subtask="",
                     summary="backend error", errors=[str(e)], validation_passed=False,
+                    event="backend_error", mode="backend_error",
                 ))
+                write_state(self.project_dir, running=True, iteration=iteration,
+                            mode="backend_error", subtask=f"backend error: {e}",
+                            validation_passed=False, ts=now_iso())
                 if backend_failures >= MAX_CONSECUTIVE_BACKEND_FAILURES:
                     self._clean_shutdown(iteration, "too many consecutive backend failures")
                     return

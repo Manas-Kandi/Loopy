@@ -6,10 +6,12 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from ninexf.backends import context_overflowed
+from ninexf.backends import BackendError, _post_json, context_overflowed
 from ninexf.candidates import CandidateResult, parse_critic_output, pick_winner
 from ninexf.config import PRESETS, Config, load_config, write_config
+from ninexf.dashboard import _run_status
 from ninexf.fitness import best_state, final_state, fitness_of
 from ninexf.relevance import render_partial
 from ninexf.parser import parse_executor_output
@@ -79,6 +81,16 @@ class TestTasks(unittest.TestCase):
         self.assertEqual(criteria, ["Running unittest discovery passes"])
         self.assertGreaterEqual(len(rejected), 3)
 
+    def test_sanitize_allows_commands_against_writable_paths(self):
+        tasks, criteria, rejected = sanitize_decomposition(
+            "Python progress bar",
+            ["Create src/main.py"],
+            ["Running `python src/main.py` exits with code 0"],
+        )
+        self.assertEqual(tasks, ["Create src/main.py"])
+        self.assertEqual(criteria, ["Running `python src/main.py` exits with code 0"])
+        self.assertEqual(rejected, [])
+
     def test_verify_output(self):
         passed, failed = parse_verify_output(
             "PASS: C1\nFAIL: C2 — files copied not moved\npass: c3\nFAIL C4\n")
@@ -110,6 +122,18 @@ class TestStuck(unittest.TestCase):
         entries = [self._iter(f"s{i}", passed=False, errors=errs) for i in range(3)]
         sig = {s.kind for s in detect_signals("different step entirely", entries, 0.85)}
         self.assertIn("same_error", sig)
+
+
+class TestBackendAndStatus(unittest.TestCase):
+    def test_post_json_timeout_becomes_backend_error(self):
+        with mock.patch("urllib.request.urlopen", side_effect=TimeoutError("timed out")):
+            with self.assertRaisesRegex(BackendError, "timeout calling"):
+                _post_json("http://127.0.0.1:11434/api/chat", {}, {}, timeout=1)
+
+    def test_running_state_with_dead_pid_is_failed(self):
+        state = {"running": True, "pid": 12345, "ts": "2026-06-12T03:38:59+00:00"}
+        with mock.patch("ninexf.dashboard._pid_alive", return_value=False):
+            self.assertEqual(_run_status(state, delay=5, last_iter_ok=None), "failed")
 
 
 class TestRelevance(unittest.TestCase):

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ninexf import GOAL_FILENAME
@@ -13,6 +14,7 @@ from ninexf import GOAL_FILENAME
 REGISTRY_DIR = Path.home() / ".9xf"
 REGISTRY_FILE = REGISTRY_DIR / "registry.json"
 STATE_FILENAME = "state.json"
+MAX_ACTIVITY = 80
 
 
 def _registry_dir() -> Path:
@@ -56,7 +58,32 @@ def registered_runs() -> list[Path]:
 
 
 def write_state(project_dir: Path, **fields) -> None:
+    prev = read_state(project_dir)
     state = {"pid": os.getpid(), **fields}
+    if "activity" not in fields and prev.get("activity"):
+        state["activity"] = prev["activity"][-MAX_ACTIVITY:]
+    (project_dir / STATE_FILENAME).write_text(json.dumps(state, indent=2))
+
+
+def append_activity(
+    project_dir: Path,
+    message: str,
+    *,
+    iteration: int | None = None,
+    kind: str = "activity",
+) -> None:
+    """Append a lightweight live status line to state.json for the app."""
+    state = read_state(project_dir)
+    activity = list(state.get("activity") or [])
+    activity.append({
+        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "iteration": iteration if iteration is not None else state.get("iteration", 0),
+        "kind": kind,
+        "message": message[:500],
+    })
+    state["activity"] = activity[-MAX_ACTIVITY:]
+    state.setdefault("running", True)
+    state.setdefault("pid", os.getpid())
     (project_dir / STATE_FILENAME).write_text(json.dumps(state, indent=2))
 
 

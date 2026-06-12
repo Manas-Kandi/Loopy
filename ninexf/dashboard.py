@@ -8,6 +8,7 @@ touches a run, it only observes.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import time
 from datetime import datetime, timezone
@@ -21,6 +22,25 @@ from ninexf.registry import read_state, registered_runs
 from ninexf.tasks import load_tasks
 
 STALE_GRACE_S = 120
+
+
+def _pid_alive(pid: object) -> bool | None:
+    """Best-effort process liveness check for state files written by loop runs."""
+    try:
+        n = int(pid)
+    except (TypeError, ValueError):
+        return None
+    if n <= 0:
+        return None
+    try:
+        os.kill(n, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return None
+    return True
 
 
 def _last_commit(project_dir: Path) -> str:
@@ -43,6 +63,8 @@ def _run_status(state: dict, delay: float, last_iter_ok: bool | None) -> str:
         if last_iter_ok is False:
             return "failed"
         return "stopped"
+    if _pid_alive(state.get("pid")) is False:
+        return "failed"
     ts = state.get("ts", "")
     try:
         age = time.time() - datetime.fromisoformat(ts).timestamp()

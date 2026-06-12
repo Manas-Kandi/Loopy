@@ -63,6 +63,8 @@ ROOT_WRITE_PATTERNS = (
     "repo root",
 )
 
+ALLOWED_GENERATED_DIRS = {"src", "tests", "tools"}
+
 
 @dataclass
 class Task:
@@ -180,8 +182,17 @@ def _mentions_forbidden_path(text: str) -> bool:
         candidate = (quoted or bare).strip()
         if not candidate or "/" not in candidate:
             continue
-        first = candidate.split("/", 1)[0]
-        if first not in {"src", "tests", "tools"}:
+        tokens = [candidate] if bare else candidate.split()
+        path_tokens = [
+            token.strip(".,;:()[]{}\"'")
+            for token in tokens
+            if "/" in token
+        ]
+        for token in path_tokens:
+            first = token.split("/", 1)[0]
+            if first not in ALLOWED_GENERATED_DIRS:
+                return True
+        if not path_tokens:
             return True
     return False
 

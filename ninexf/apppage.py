@@ -197,9 +197,9 @@ textarea{resize:vertical;min-height:72px}
 #diff .ctx{color:var(--faint)}
 
 /* ---------- modal ---------- */
-#overlay{position:fixed;inset:0;background:rgba(2,3,5,.7);display:none;
+#overlay,#copyOverlay{position:fixed;inset:0;background:rgba(2,3,5,.7);display:none;
   align-items:center;justify-content:center;z-index:10}
-#overlay.show{display:flex}
+#overlay.show,#copyOverlay.show{display:flex}
 .modal{width:560px;max-width:94vw;max-height:90vh;overflow-y:auto;padding:22px}
 .modal h2{font-size:13px;letter-spacing:.22em;text-transform:uppercase;
   color:var(--amber);margin-bottom:20px}
@@ -241,6 +241,7 @@ textarea{resize:vertical;min-height:72px}
       <div class="cell"><span class="lbl">Status</span>
         <div class="val statusword never" id="topPill">no run</div></div>
       <div class="cell actions">
+        <button id="copyBtn" style="display:none">Copy diagnostics</button>
         <button id="stopBtn" class="danger" style="display:none">Stop</button>
         <button id="resumeBtn" class="primary" style="display:none">Resume</button>
       </div>
@@ -295,7 +296,18 @@ textarea{resize:vertical;min-height:72px}
   <div class="formerr" id="fErr" role="alert"></div>
   <div class="actions">
     <button onclick="closeNew()">Cancel</button>
-    <button class="primary" onclick="startSession()">Start</button>
+        <button class="primary" onclick="startSession()">Start</button>
+  </div>
+</div></div>
+
+<div id="copyOverlay" role="dialog" aria-modal="true"><div class="modal frame">
+  <h2>Diagnostic bundle</h2>
+  <div class="field"><span class="lbl">Copy this text</span>
+    <textarea id="copyText" style="min-height:320px"></textarea>
+    <div class="hint">Clipboard access was unavailable, so the bundle is shown here.</div>
+  </div>
+  <div class="actions">
+    <button onclick="$('copyOverlay').classList.remove('show')">Close</button>
   </div>
 </div></div>
 
@@ -370,6 +382,23 @@ function flags(e){
   return f.join('');
 }
 function entryHtml(e){
+  if (e.event === 'activity'){
+    const kind = e.mode ? `<b>${esc(e.mode)}</b> ` : '';
+    return `<div class="evt">${kind}${esc(e.summary)}</div>`;
+  }
+  if (e.event === 'live'){
+    return `<article class="rec selected">
+      <div class="rechead">
+        <span class="recno">${pad3(e.iteration)}</span>
+        <span class="recmode">${esc(e.mode)}</span>
+        <span class="flag warn">live</span>
+        <span class="verdict ok"><span class="cursor">▮</span> RUNNING</span>
+      </div>
+      <div class="recline plan"><span class="lbl">Plan</span><span class="txt">${esc(e.subtask)}</span></div>
+      <div class="recline execl"><span class="lbl">Exec</span><span class="txt">${esc(e.summary)}</span></div>
+      <div class="recmeta"><span>not committed yet</span></div>
+    </article>`;
+  }
   if (e.event === 'iteration'){
     const sel = pinnedCommit && e.commit === pinnedCommit ? 'selected' : '';
     return `<article class="rec ${e.ok?'ok':'bad'} ${e.commit?'clickable':''} ${sel}"
@@ -408,6 +437,7 @@ async function tickRun(){
   const running = r.status === 'running';
   $('stopBtn').style.display = running && !r.stop_present ? '' : 'none';
   $('resumeBtn').style.display = (!running && !r.finished) ? '' : 'none';
+  $('copyBtn').style.display = current ? '' : 'none';
   $('pulsewrap').style.display = r.entries.some(e => e.event === 'iteration') ? '' : 'none';
   $('pulse').innerHTML = pulseSvg(r.entries, running);
 
@@ -464,6 +494,26 @@ $('resumeBtn').onclick = async () => {
   const r = await (await fetch('/api/start', {method:'POST', body: JSON.stringify({dir: current})})).json();
   if (r.error) alert(r.error); tickRun();
 };
+$('copyBtn').onclick = async () => {
+  if (!current) return;
+  const btn = $('copyBtn'), old = btn.textContent;
+  btn.textContent = 'Copying…';
+  let r;
+  try{ r = await (await fetch('/api/export?dir='+encodeURIComponent(current))).json(); }
+  catch(e){ btn.textContent = 'Copy failed'; setTimeout(()=>btn.textContent=old, 1600); return; }
+  if (r.error){ alert(r.error); btn.textContent = old; return; }
+  try{
+    await navigator.clipboard.writeText(r.text);
+    btn.textContent = `Copied ${Math.round((r.chars||r.text.length)/1000)}k`;
+    setTimeout(()=>btn.textContent=old, 1800);
+  }catch(e){
+    $('copyText').value = r.text;
+    $('copyOverlay').classList.add('show');
+    $('copyText').focus();
+    $('copyText').select();
+    btn.textContent = old;
+  }
+};
 
 /* ---------- new session modal ---------- */
 let mode = '';
@@ -471,7 +521,9 @@ function setMode(m){ mode = m; $('mReg').className = m ? '' : 'on'; $('mOver').c
 function openNew(){ $('overlay').classList.add('show'); $('fErr').textContent=''; loadModels(); $('fGoal').focus(); }
 function closeNew(){ $('overlay').classList.remove('show'); $('browser').style.display='none'; }
 $('newBtn').onclick = openNew;
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeNew(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape'){ closeNew(); $('copyOverlay').classList.remove('show'); }
+});
 async function loadModels(){
   try{
     const m = await (await fetch('/api/models')).json();
