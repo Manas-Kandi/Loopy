@@ -870,9 +870,10 @@ class LoopRunner:
                     msg = f"unknown tool requested: {name!r}; available tools: {tools}"
                     errors.append(msg)
                     validation_passed = False
-                    outcome.failure_kind = "tool"
-                    outcome.error_signature = msg.lower()[:300]
-                    outcome.error_excerpt = msg
+                    if not outcome.failure_kind:
+                        outcome.failure_kind = "tool"
+                        outcome.error_signature = msg.lower()[:300]
+                        outcome.error_excerpt = msg
                 dropped = len(parsed.tool_runs) - len(tool_runs)
             if dropped > 0:
                 errors.append(f"{dropped} tool run(s) dropped (cap {cfg.max_tool_runs_per_iteration})")

@@ -28,8 +28,7 @@ APP_PAGE = r"""<!doctype html>
 *{box-sizing:border-box;margin:0}
 html,body{height:100%}
 body{
-  background:var(--ink) radial-gradient(circle,#10151d 1px,transparent 1px);
-  background-size:26px 26px;
+  background:var(--ink);
   color:var(--txt);font:13px/1.55 var(--mono);display:flex;overflow:hidden;
   font-variant-numeric:tabular-nums;
 }
@@ -40,11 +39,11 @@ body{
 :focus-visible{outline:1px solid var(--amber);outline-offset:2px}
 
 /* ---------- primitives ---------- */
-.lbl{font-size:9.5px;letter-spacing:.18em;color:var(--faint);text-transform:uppercase}
+.lbl{font-size:10px;letter-spacing:.1em;color:var(--faint);text-transform:uppercase}
 button{
-  font:inherit;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
+  font:inherit;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
   cursor:pointer;color:var(--txt);background:var(--panel2);
-  border:1px solid var(--line2);border-radius:0;padding:7px 14px;
+  border:1px solid var(--line2);border-radius:4px;padding:7px 14px;
 }
 button:hover{border-color:var(--amber2);color:var(--amber)}
 button.primary{background:var(--amber);border-color:var(--amber);color:#000;font-weight:700}
@@ -52,18 +51,11 @@ button.primary:hover{background:#ffc23d;color:#000}
 button.danger:hover{border-color:var(--red);color:var(--red)}
 input,textarea,select{
   font:inherit;font-size:12.5px;background:var(--well);color:var(--txt);
-  border:1px solid var(--line2);border-radius:0;padding:8px 10px;width:100%;
+  border:1px solid var(--line2);border-radius:4px;padding:8px 10px;width:100%;
 }
 input:focus,textarea:focus,select:focus{outline:none;border-color:var(--amber2)}
 textarea{resize:vertical;min-height:72px}
-/* draftsman corner ticks — the panel signature */
-.frame{position:relative;border:1px solid var(--line);background:var(--panel)}
-.frame::before,.frame::after{
-  content:"";position:absolute;width:8px;height:8px;pointer-events:none;
-  border:0 solid var(--amber-dim);
-}
-.frame::before{top:-1px;left:-1px;border-top-width:1px;border-left-width:1px}
-.frame::after{bottom:-1px;right:-1px;border-bottom-width:1px;border-right-width:1px}
+.frame{position:relative;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
 
 @keyframes blink{0%,55%{opacity:1}56%,100%{opacity:0}}
 .cursor{animation:blink 1.1s steps(1) infinite}
@@ -75,17 +67,17 @@ textarea{resize:vertical;min-height:72px}
 #brand{padding:18px 16px 14px;border-bottom:1px solid var(--line)}
 #brand .word{font-size:19px;font-weight:700;letter-spacing:.08em;color:var(--txt)}
 #brand .word b{color:var(--amber)}
-#brand .tag{font-size:9px;letter-spacing:.26em;color:var(--faint);margin-top:3px}
+#brand .tag{font-size:9.5px;letter-spacing:.14em;color:var(--faint);margin-top:3px}
 #newBtn{margin:14px;display:block;width:calc(100% - 28px)}
-.raillabel{padding:4px 16px 8px;font-size:9.5px;letter-spacing:.18em;color:var(--faint)}
+.raillabel{padding:4px 16px 8px;font-size:10px;letter-spacing:.1em;color:var(--faint)}
 #runlist{flex:1;overflow-y:auto}
 .runitem{display:flex;gap:10px;align-items:flex-start;padding:10px 14px;cursor:pointer;
   border-left:2px solid transparent}
 .runitem:hover{background:var(--panel2)}
 .runitem.active{background:var(--panel2);border-left-color:var(--amber)}
 .led{width:8px;height:8px;margin-top:5px;background:var(--faint);flex:none}
-.led.running{background:var(--green);box-shadow:0 0 8px rgba(61,220,122,.7)}
-.led.finished{background:var(--amber);box-shadow:0 0 7px rgba(255,176,0,.55)}
+.led.running{background:var(--green);box-shadow:0 0 5px rgba(61,220,122,.45)}
+.led.finished{background:var(--amber);box-shadow:0 0 4px rgba(255,176,0,.35)}
 .led.failed{background:var(--red)}
 .led.stale{background:var(--amber2)}
 .runitem .g{font-size:12px;color:var(--txt);overflow:hidden;text-overflow:ellipsis;
@@ -200,8 +192,8 @@ textarea{resize:vertical;min-height:72px}
 #overlay,#copyOverlay{position:fixed;inset:0;background:rgba(2,3,5,.7);display:none;
   align-items:center;justify-content:center;z-index:10}
 #overlay.show,#copyOverlay.show{display:flex}
-.modal{width:560px;max-width:94vw;max-height:90vh;overflow-y:auto;padding:22px}
-.modal h2{font-size:13px;letter-spacing:.22em;text-transform:uppercase;
+.modal{width:560px;max-width:94vw;max-height:90vh;overflow-y:auto;padding:24px;border-radius:8px}
+.modal h2{font-size:13px;letter-spacing:.14em;text-transform:uppercase;
   color:var(--amber);margin-bottom:20px}
 .field{margin-bottom:16px}
 .field .lbl{display:block;margin-bottom:7px}

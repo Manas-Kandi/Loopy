@@ -451,6 +451,31 @@ class MockBackend(Backend):
             "RUN_TOOL: pytest tests/\n"
         )
 
+    def _tests_fail_and_unknown_tool(self, user: str) -> str:
+        if "Break this goal down" in user:
+            return (
+                "TASK: Add a broken unittest and request an unavailable tool.\n"
+                "TASK: Fix the unittest.\n"
+                "CRITERION: validation passes\n"
+            )
+        if "First line: YES or NO" in user:
+            return "NO — tests fail."
+        if "single most useful next step" in user:
+            return "TASK T1: Add a broken unittest and request an unavailable tool."
+        return (
+            "SUMMARY: Added a broken unittest and requested flake8.\n"
+            "FILE: tests/test_main.py\n"
+            "```python\n"
+            "import unittest\n\n"
+            "class TestMain(unittest.TestCase):\n"
+            "    def test_broken(self):\n"
+            "        self.assertEqual(1, 2)\n\n"
+            "if __name__ == '__main__':\n"
+            "    unittest.main()\n"
+            "```\n"
+            "RUN_TOOL: flake8 tests/\n"
+        )
+
     def _plan(self, user: str) -> str:
         if "You are repeating yourself" in user:
             return "Create a helper tool tools/line_count.py that counts lines of source code."
@@ -505,6 +530,8 @@ class MockBackend(Backend):
             return self._slow_test(user)
         if self.scenario == "unknown_tool":
             return self._unknown_tool(user)
+        if self.scenario == "tests_fail_unknown_tool":
+            return self._tests_fail_and_unknown_tool(user)
         # v0.3 harness prompts (decompose / task-check / verify-done)
         if "Break this goal down" in user:
             return (

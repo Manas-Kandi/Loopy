@@ -291,6 +291,9 @@ Rules:
 - Rewrite whole files; partial edits are not supported.
 - Helper scripts in tools/ must have a module docstring whose first line
   describes what the tool does.
+- RUN_TOOL may only name an existing listed helper script exactly. Never use
+  external commands such as pytest, flake8, npm, pip, or shell commands as
+  RUN_TOOL names.
 - Tests must be fast, deterministic, stdlib-only unittest tests. Do not write
   tests that wait near the validation timeout, require pytest/flake8, or assert
   multi-second wall-clock timing."""

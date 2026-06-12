@@ -319,6 +319,18 @@ class TestEvidenceDrivenGuards(unittest.TestCase):
         finally:
             cleanup(project)
 
+    def test_unknown_tool_does_not_mask_test_failure(self):
+        project = make_run("Greeting tool", "mock/tests_fail_unknown_tool")
+        try:
+            entries = run_loop(project, max_iterations=2)
+            iters = iteration_entries(entries)
+            self.assertTrue(iters)
+            self.assertFalse(iters[0]["validation_passed"])
+            self.assertEqual(iters[0]["failure_kind"], "tests")
+            self.assertIn("unknown tool requested", "\n".join(iters[0]["errors"]))
+        finally:
+            cleanup(project)
+
 
 if __name__ == "__main__":
     unittest.main()
