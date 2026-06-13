@@ -16,6 +16,7 @@ from ninexf.contract import contract_for_prompt, save_contract
 from ninexf.dashboard import _run_status
 from ninexf.fitness import best_state, final_state, fitness_of
 from ninexf.loop import ExecOutcome, _repair_file_dump
+from ninexf.models import DEFAULT_MODEL, GPT_OSS_20B_MODEL, model_options
 from ninexf.relevance import render_partial
 from ninexf.parser import parse_executor_output
 from ninexf.relevance import score_files
@@ -102,6 +103,27 @@ class TestTasks(unittest.TestCase):
         self.assertEqual(criteria, ["Running `python src/main.py` exits with code 0"])
         self.assertEqual(rejected, [])
 
+    def test_dashboard_scaffold_decomposition_is_rejected(self):
+        tasks, criteria, rejected = sanitize_decomposition(
+            "Write a simple HTML page that shows a pretty dashboard with charts, "
+            "graphs, clean visuals, data, and metrics.",
+            [
+                "Create a new directory named src in the project root.",
+                "Create src/dashboard.html.",
+                "Add a <body> section with a container div.",
+                "Add a <div> inside the main section for charts and graphs.",
+                "Add a <footer> with copyright text.",
+            ],
+            [
+                "The dashboard.html file contains a basic HTML structure.",
+                "The CSS file contains basic styling.",
+                "There is a div with class charts-and-graphs.",
+            ],
+        )
+        self.assertEqual(tasks, [])
+        self.assertEqual(criteria, [])
+        self.assertTrue(any("FRONTEND" in r for r in rejected), rejected)
+
     def test_contract_for_prompt(self):
         d = Path(tempfile.mkdtemp())
         save_contract(d, "Build a widget", ["Create src/widget.py"], ["tests pass"])
@@ -110,6 +132,20 @@ class TestTasks(unittest.TestCase):
         self.assertIn("Create src/widget.py", contract)
         self.assertIn("Tests must be deterministic", contract)
         self.assertIn("Entry points and demos must be bounded", contract)
+
+    def test_dashboard_contract_includes_frontend_quality_rules(self):
+        d = Path(tempfile.mkdtemp())
+        save_contract(
+            d,
+            "Build an HTML dashboard with charts and metrics",
+            ["Build src/dashboard.html"],
+            ["Visible metrics and charts"],
+        )
+        contract = contract_for_prompt(d)
+        self.assertIn("complete visible first screen", contract)
+        self.assertIn("Local stylesheet/script links must resolve", contract)
+        self.assertIn("at least three visible metric values", contract)
+        self.assertIn("empty chart", contract)
 
     def test_verify_output(self):
         passed, failed = parse_verify_output(
@@ -233,6 +269,24 @@ class TestFitness(unittest.TestCase):
 
 
 class TestPresets(unittest.TestCase):
+    def test_model_catalog_includes_gpt_oss_20b(self):
+        options = model_options([])
+        self.assertEqual(options[0], DEFAULT_MODEL)
+        self.assertIn(GPT_OSS_20B_MODEL, options)
+
+    def test_model_catalog_prefers_installed_ollama_models(self):
+        options = model_options(["gpt-oss:20b", "custom:latest"])
+        self.assertEqual(options[:2], [GPT_OSS_20B_MODEL, "ollama/custom:latest"])
+        self.assertEqual(options.count(GPT_OSS_20B_MODEL), 1)
+
+    def test_webapp_model_list_includes_recommended_models(self):
+        from ninexf.webapp import list_models
+        with mock.patch("ninexf.interactive._ollama_models", return_value=[]):
+            models = list_models()
+        self.assertEqual(models["default"], DEFAULT_MODEL)
+        self.assertIn(GPT_OSS_20B_MODEL, models["models"])
+        self.assertIn(GPT_OSS_20B_MODEL, models["recommended"])
+
     def test_overnight_preset(self):
         d = Path(tempfile.mkdtemp())
         write_config(d, {"model": "mock"}, preset="overnight")
@@ -406,6 +460,57 @@ class TestValidationEvidence(unittest.TestCase):
         self.assertFalse(result.passed)
         self.assertEqual(result.failure_kind, "slow_test")
         self.assertIn("wall-clock", "\n".join(result.errors))
+
+    def test_dashboard_with_broken_stylesheet_and_empty_chart_fails(self):
+        d = Path(tempfile.mkdtemp())
+        (d / "src" / "css").mkdir(parents=True)
+        html = d / "src" / "dashboard.html"
+        css = d / "src" / "css" / "styles.css"
+        css.write_text("body { font-family: Arial, sans-serif; }\n")
+        html.write_text(
+            "<!doctype html><html><head><title>Pretty Dashboard</title>"
+            "<link rel='stylesheet' href='../css/styles.css'></head>"
+            "<body><h1>Dashboard</h1><h2>Metrics & Graphs</h2>"
+            "<div class='charts-and-graphs'></div>"
+            "<footer>(c) 2023 Pretty Dashboard</footer></body></html>"
+        )
+        result = validate(d, [html, css], timeout=5, allow_network=True)
+        self.assertFalse(result.passed)
+        self.assertEqual(result.failure_kind, "frontend_static")
+        joined = "\n".join(result.errors)
+        self.assertIn("stylesheet link", joined)
+        self.assertIn("empty placeholders", joined)
+        self.assertIn("numeric value", joined)
+
+    def test_static_dashboard_with_resolved_css_data_and_chart_passes(self):
+        d = Path(tempfile.mkdtemp())
+        (d / "src" / "css").mkdir(parents=True)
+        html = d / "src" / "dashboard.html"
+        css = d / "src" / "css" / "styles.css"
+        css.write_text(
+            "body { font-family: Arial, sans-serif; background: #f7f8fb; }"
+            ".metric { display: inline-block; padding: 12px; }"
+        )
+        html.write_text(
+            "<!doctype html><html><head><title>Ops Dashboard</title>"
+            "<link rel='stylesheet' href='css/styles.css'></head><body>"
+            "<main class='dashboard'>"
+            "<section class='metrics'>"
+            "<article class='metric'><strong>$128K</strong><span>Revenue</span></article>"
+            "<article class='metric'><strong>42%</strong><span>Conversion</span></article>"
+            "<article class='metric'><strong>18,400</strong><span>Visitors</span></article>"
+            "</section>"
+            "<svg class='chart' viewBox='0 0 120 50' aria-label='Revenue chart'>"
+            "<rect x='4' y='20' width='12' height='26'></rect>"
+            "<rect x='24' y='12' width='12' height='34'></rect>"
+            "<rect x='44' y='6' width='12' height='40'></rect>"
+            "<text x='4' y='48'>Q1</text>"
+            "</svg>"
+            "</main></body></html>"
+        )
+        result = validate(d, [html, css], timeout=5, allow_network=True)
+        self.assertTrue(result.passed, result.errors)
+        self.assertIn("frontend-static", result.detail)
 
 
 class TestRepairEvidence(unittest.TestCase):

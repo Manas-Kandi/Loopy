@@ -346,9 +346,16 @@ def browse(path_str: str) -> dict:
 
 
 def list_models() -> dict:
-    from ninexf.interactive import DEFAULT_MODEL, _ollama_models
-    found = [f"ollama/{m}" for m in _ollama_models()]
-    return {"models": found or [DEFAULT_MODEL], "default": found[0] if found else DEFAULT_MODEL}
+    from ninexf.interactive import _ollama_models
+    from ninexf.models import DEFAULT_MODEL, GPT_OSS_20B_MODEL, model_options, ollama_model_id
+    installed = _ollama_models()
+    found = [ollama_model_id(m) for m in installed]
+    options = model_options(installed)
+    return {
+        "models": options,
+        "default": found[0] if found else DEFAULT_MODEL,
+        "recommended": [GPT_OSS_20B_MODEL],
+    }
 
 
 # -- API: control -----------------------------------------------------------------

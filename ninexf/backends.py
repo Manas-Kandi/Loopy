@@ -356,6 +356,51 @@ class MockBackend(Backend):
             )
         return self._finisher(user)
 
+    def _bad_dashboard(self, user: str) -> str:
+        if "Break this goal down" in user:
+            return (
+                "TASK: Create a new directory named src in the project root.\n"
+                "TASK: Create a new directory named css inside the project root.\n"
+                "TASK: Create src/dashboard.html.\n"
+                "TASK: Add a <head> section with title and link to CSS.\n"
+                "TASK: Create a CSS file with basic styling.\n"
+                "TASK: Add a <body> section with a container div.\n"
+                "TASK: Add a <div> inside the main section for charts and graphs.\n"
+                "TASK: Add a <footer> with copyright text.\n"
+                "CRITERION: The dashboard.html file contains a basic HTML structure.\n"
+                "CRITERION: The CSS file contains basic styling.\n"
+                "CRITERION: There is a div with class charts-and-graphs.\n"
+            )
+        if "single most useful next step" in user:
+            return "Create src/dashboard.html and src/css/styles.css for the dashboard."
+        return (
+            "SUMMARY: Created a basic dashboard page.\n"
+            "FILE: src/dashboard.html\n"
+            "```html\n"
+            "<!DOCTYPE html>\n"
+            "<html lang=\"en\">\n"
+            "<head>\n"
+            "    <meta charset=\"UTF-8\">\n"
+            "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n"
+            "    <title>Pretty Dashboard</title>\n"
+            "    <link rel=\"stylesheet\" href=\"../css/styles.css\">\n"
+            "</head>\n"
+            "<body>\n"
+            "    <div class=\"dashboard-container\">\n"
+            "        <header><h1>Dashboard</h1><h2>Metrics & Graphs</h2></header>\n"
+            "        <main><section class=\"content\"><div class=\"charts-and-graphs\"></div></section></main>\n"
+            "        <footer>(c) 2023 Pretty Dashboard</footer>\n"
+            "    </div>\n"
+            "</body>\n"
+            "</html>\n"
+            "```\n"
+            "FILE: src/css/styles.css\n"
+            "```css\n"
+            "body { font-family: Arial, sans-serif; margin: 0; }\n"
+            ".charts-and-graphs { height: 400px; border: 1px solid #ddd; }\n"
+            "```\n"
+        )
+
     def _deferred_retry(self, user: str) -> str:
         if "Break this goal down" in user:
             return (
@@ -617,6 +662,8 @@ class MockBackend(Backend):
             return self._repairer(user)
         if self.scenario == "bad_decompose":
             return self._bad_decompose(user)
+        if self.scenario == "bad_dashboard":
+            return self._bad_dashboard(user)
         if self.scenario == "deferred_retry":
             return self._deferred_retry(user)
         if self.scenario == "slow_test":

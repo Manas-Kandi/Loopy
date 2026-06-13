@@ -20,9 +20,13 @@ from pathlib import Path
 
 from ninexf import CONFIG_FILENAME, GOAL_FILENAME, STOP_FILENAME
 from ninexf.looplog import read_entries
+from ninexf.models import (
+    DEFAULT_MODEL,
+    GPT_OSS_20B_MODEL,
+    model_options,
+    ollama_model_id,
+)
 from ninexf.registry import read_state, registered_runs
-
-DEFAULT_MODEL = "ollama/qwen2.5-coder:7b"
 
 
 # -- tiny presentation helpers --------------------------------------------------
@@ -95,14 +99,24 @@ def _ollama_models(endpoint: str = "http://localhost:11434") -> list[str]:
 
 def _pick_model() -> str:
     models = _ollama_models()
-    if not models:
-        return _ask("model", DEFAULT_MODEL)
-    options = [(str(i), f"ollama/{name}") for i, name in enumerate(models[:8], start=1)]
+    installed = {ollama_model_id(name) for name in models}
+    choices = model_options(models[:8])
+    options = []
+    for i, model in enumerate(choices, start=1):
+        suffix = ""
+        if model not in installed:
+            suffix = " (recommended; install with `ollama pull gpt-oss:20b`)" if model == GPT_OSS_20B_MODEL else " (recommended)"
+        options.append((str(i), f"{model}{suffix}"))
     options.append(("0", "type something else (e.g. anthropic/claude-sonnet-4-6)"))
-    choice = _choose("Pick a model (found via local Ollama)", options)
+    title = "Pick a model"
+    if models:
+        title += " (installed Ollama models first)"
+    else:
+        title += " (recommended local models)"
+    choice = _choose(title, options)
     if choice == "0":
         return _ask("model", DEFAULT_MODEL)
-    return f"ollama/{models[int(choice) - 1]}"
+    return choices[int(choice) - 1]
 
 
 # -- run summaries ----------------------------------------------------------------

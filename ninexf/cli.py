@@ -11,6 +11,7 @@ from ninexf import CONFIG_FILENAME, GOAL_FILENAME, STOP_FILENAME, __version__
 from ninexf.config import PRESETS, load_config, write_config
 from ninexf.gitops import commit_all, init_repo
 from ninexf.looplog import read_entries
+from ninexf.models import DEFAULT_MODEL, GPT_OSS_20B_MODEL
 from ninexf.registry import register_run
 
 
@@ -98,7 +99,7 @@ def cmd_init(args):
         sys.exit(str(e))
     print(f"initialized 9xf project in {project}")
     print(f"  goal:  {args.goal.strip()}")
-    print(f"  model: {args.model or 'ollama/qwen2.5-coder:7b (default)'}")
+    print(f"  model: {args.model or f'{DEFAULT_MODEL} (default)'}")
     if args.preset:
         print(f"  preset: {args.preset}")
     print(f"run it with: 9xf run --dir {project}"
@@ -244,7 +245,9 @@ def main(argv=None):
 
     p = sub.add_parser("init", help="create a new loop project")
     p.add_argument("--goal", required=True, help="the high-level goal (the unchanging north star)")
-    p.add_argument("--model", default=None, help="e.g. ollama/qwen2.5-coder:7b, anthropic/claude-sonnet-4-6, mock")
+    p.add_argument("--model", default=None,
+                   help=f"e.g. {DEFAULT_MODEL}, {GPT_OSS_20B_MODEL}, "
+                        "anthropic/claude-sonnet-4-6, mock")
     p.add_argument("--max-iterations", type=int, default=None)
     p.add_argument("--delay", type=float, default=None, help="seconds between iterations")
     p.add_argument("--allow-network", action="store_true",

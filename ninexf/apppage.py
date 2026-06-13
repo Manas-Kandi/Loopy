@@ -18,11 +18,12 @@ APP_PAGE = r"""<!doctype html>
 <title>9xf</title>
 <style>
 :root{
-  --ink:#161513; --panel:#1e1d1a; --panel2:#262420; --well:#110f0e;
-  --line:#2a2825; --line2:#3a3733;
-  --amber:#d97757; --amber2:#b05f43; --amber-dim:#5c3527;
-  --green:#97b58c; --red:#cd6f63; --blue:#9db4cd;
-  --txt:#e8e6e1; --dim:#9b9892; --faint:#6e6b64;
+  --ink:#0c0b0a; --panel:#141312; --panel2:#1b1a18; --well:#070605;
+  --line:#221f1d; --line2:#322e2b;
+  --amber:#b06a4f; --amber2:#8f553e; --amber-dim:#4a2e22;
+  --green:#7d9a78; --red:#b56a5f; --blue:#8499ad;
+  --cool:#6f7a85; --cool-bg:#121417;
+  --txt:#e0ddd7; --dim:#928f89; --faint:#65625c;
   --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
 }
@@ -51,7 +52,7 @@ button:hover{background:var(--panel2);border-color:var(--faint)}
 button:active{transform:translateY(1px)}
 button:disabled{opacity:.45;cursor:default;transform:none}
 button.primary{background:var(--amber);border-color:var(--amber);color:#fff;font-weight:600}
-button.primary:hover{background:#e08763;border-color:#e08763;color:#fff}
+button.primary:hover{background:#bd7359;border-color:#bd7359;color:#fff}
 button.danger:hover{border-color:var(--red);color:var(--red);background:transparent}
 input,textarea,select{
   font:inherit;font-size:13px;background:var(--well);color:var(--txt);
@@ -76,10 +77,13 @@ textarea{resize:vertical;min-height:72px}
 #newBtn{margin:14px 14px 6px;display:block;width:calc(100% - 28px)}
 .raillabel{padding:12px 18px 4px;font-size:11px;color:var(--faint)}
 #runlist{flex:1;overflow-y:auto;padding:0 8px}
-.runitem{display:flex;gap:10px;align-items:flex-start;padding:8px 10px;cursor:pointer;
-  border-radius:10px;margin-bottom:1px}
+.runitem{display:flex;gap:10px;align-items:flex-start;padding:8px 11px;cursor:pointer;
+  border-radius:10px;margin-bottom:1px;position:relative;
+  transition:background .14s ease}
 .runitem:hover{background:var(--panel)}
 .runitem.active{background:var(--panel2)}
+.runitem.active::before{content:"";position:absolute;left:3px;top:9px;bottom:9px;width:2px;
+  border-radius:2px;background:var(--amber)}
 .led{width:7px;height:7px;margin-top:6px;border-radius:50%;background:var(--faint);flex:none}
 .led.running{background:var(--green)}
 .led.finished{background:var(--amber)}
@@ -138,26 +142,30 @@ textarea{resize:vertical;min-height:72px}
 
 /* ---------- transcript records: collapsible cards ---------- */
 .rec{background:var(--panel);border-radius:10px;margin:0 auto 6px;max-width:740px;
-  overflow:hidden}
+  overflow:hidden;transition:box-shadow .18s ease}
 .rec.selected{box-shadow:0 0 0 1px var(--amber2)}
 .rechead{display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;
-  font-size:11.5px;color:var(--dim);user-select:none}
+  font-size:11.5px;color:var(--dim);user-select:none;transition:background .14s ease}
 .rechead:hover{background:var(--panel2)}
-.chev{flex:none;color:var(--faint);font-size:9px;width:9px;transition:transform .15s}
-.rec.open .chev{transform:rotate(90deg)}
+.chev{flex:none;color:var(--faint);font-size:9px;width:9px;
+  transition:transform .2s cubic-bezier(.4,0,.2,1)}
+.rec.open .chev,.actgroup.open .chev{transform:rotate(90deg)}
 .recno{flex:none;font:600 11.5px var(--mono);color:var(--dim)}
 .recmode{flex:none;color:var(--faint)}
 .rectitle{flex:1;min-width:0;color:var(--txt);font-size:12.5px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .flag{flex:none;padding:1px 8px;border-radius:99px;background:var(--panel2);color:var(--dim);font-size:10.5px}
-.flag.warn{background:rgba(217,119,87,.13);color:var(--amber)}
-.flag.bad{background:rgba(205,111,99,.13);color:var(--red)}
-.flag.good{background:rgba(151,181,140,.13);color:var(--green)}
-.dotv{flex:none;width:7px;height:7px;border-radius:50%;background:var(--dim)}
-.dotv.ok{background:var(--green)}
-.dotv.bad{background:var(--red)}
-.recbody{display:none;padding:2px 14px 12px 33px}
-.rec.open .recbody{display:block}
+.flag.warn{background:rgba(176,106,79,.16);color:var(--amber)}
+.flag.bad{background:rgba(181,106,95,.15);color:var(--red)}
+.flag.good{background:rgba(125,154,120,.15);color:var(--green)}
+.verdict{margin-left:auto;font-weight:600;font-size:11.5px}
+.verdict.ok{color:var(--green)}
+.verdict.bad{color:var(--red)}
+/* smooth height animation via grid 0fr→1fr (handles arbitrary content height) */
+.recbody{display:grid;grid-template-rows:0fr;transition:grid-template-rows .22s cubic-bezier(.4,0,.2,1)}
+.rec.open .recbody{grid-template-rows:1fr}
+.rbi{overflow:hidden;min-height:0;padding:0 14px 0 33px}
+.rec.open .rbi{padding-bottom:12px}
 .recline{display:flex;gap:10px;padding-top:8px}
 .recline .lbl{flex:none;width:34px;font-size:11px;color:var(--faint);padding-top:1px}
 .recline .txt{font-size:12.5px;line-height:1.55;word-break:break-word;min-width:0}
@@ -167,17 +175,29 @@ textarea{resize:vertical;min-height:72px}
 .file{font:11px var(--mono);background:var(--panel2);border-radius:6px;padding:2px 8px;color:var(--blue)}
 .errblock{margin:8px 0 0 44px;border-radius:8px;padding:7px 10px;
   font:11.5px/1.5 var(--mono);color:var(--red);word-break:break-word;
-  background:rgba(205,111,99,.08)}
+  background:rgba(181,106,95,.09)}
 .recmeta{display:flex;gap:14px;padding:10px 0 0 44px;font-size:11px;color:var(--faint)}
 .recmeta .hash{font-family:var(--mono);color:var(--amber2);cursor:pointer}
 .recmeta .hash:hover{color:var(--amber);text-decoration:underline}
 
-/* activity stream — lightweight, part of the flow (not floating dividers) */
-.act{display:flex;align-items:center;gap:9px;max-width:740px;margin:0 auto;
-  padding:3px 14px;color:var(--faint);font-size:11.5px}
-.act .k{color:var(--dim);font-weight:500}
-.act::before{content:"";flex:none;width:4px;height:4px;border-radius:50%;
-  background:var(--line2)}
+/* activity / process stream — cooler, quieter, collapsible as one block */
+.actgroup{max-width:740px;margin:0 auto 6px;border-radius:10px;
+  background:var(--cool-bg);border:1px solid transparent;transition:border-color .14s}
+.actgroup:hover{border-color:var(--line)}
+.acthead{display:flex;align-items:center;gap:9px;padding:7px 14px;cursor:pointer;
+  font-size:11px;color:var(--cool);user-select:none}
+.acthead .chev{color:var(--cool);opacity:.7}
+.actcount{flex:none;font:600 10.5px var(--mono);color:var(--cool)}
+.actpath{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  color:var(--faint)}
+.actlast{flex:none;max-width:46%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  color:var(--cool);opacity:.85}
+.actbody{display:grid;grid-template-rows:0fr;transition:grid-template-rows .22s cubic-bezier(.4,0,.2,1)}
+.actgroup.open .actbody{grid-template-rows:1fr}
+.abi{overflow:hidden;min-height:0}
+.actgroup.open .abi{padding:0 14px 8px 33px}
+.actrow{display:flex;gap:10px;padding-top:5px;font-size:11.5px;color:var(--faint)}
+.actrow .k{flex:none;width:64px;color:var(--cool);font-weight:500}
 
 /* milestones */
 .evt{display:flex;align-items:center;justify-content:center;gap:8px;max-width:740px;
@@ -198,6 +218,8 @@ textarea{resize:vertical;min-height:72px}
 #diffTitle .hash{font-family:var(--mono);color:var(--amber)}
 #diff{flex:1;overflow:auto;padding:10px 22px 16px;font:11.5px/1.6 var(--mono);
   white-space:pre;color:var(--dim)}
+#diff.swap{animation:fadein .2s ease}
+@keyframes fadein{from{opacity:0}to{opacity:1}}
 #diff .add{color:var(--green)}
 #diff .del{color:var(--red)}
 #diff .hunk{color:var(--amber2)}
@@ -225,6 +247,10 @@ textarea{resize:vertical;min-height:72px}
 #browser .bi .tag{color:var(--amber2);font-size:10px}
 .formerr{color:var(--red);font-size:12px;margin-top:8px;min-height:14px}
 .hint{color:var(--faint);font-size:11.5px;margin-top:6px}
+.kbd{font:10.5px var(--mono);color:var(--faint);border:1px solid var(--line2);
+  border-radius:5px;padding:1px 5px;background:var(--well)}
+.modal .actions .sp{margin-right:auto;color:var(--faint);font-size:11px;display:flex;
+  align-items:center;gap:6px}
 </style></head><body>
 
 <aside id="side">
@@ -232,16 +258,16 @@ textarea{resize:vertical;min-height:72px}
     <div class="word">9<b>xf</b></div>
     <div class="tag">autonomous coding loops</div>
   </div>
-  <button id="newBtn" class="primary" aria-label="New session">+ New session</button>
+  <button id="newBtn" class="primary" title="New session  (n)" aria-label="New session">+ New session</button>
   <div class="raillabel">Sessions</div>
   <div id="runlist" role="list"></div>
-  <div id="railfoot"><span id="clock">--:--:--</span><span>LOCAL · 127.0.0.1</span></div>
+  <div id="railfoot"><span id="clock">--:--:--</span><span>local · 127.0.0.1</span></div>
 </aside>
 
 <main id="main">
   <header id="top">
     <div id="readouts">
-      <button id="sideToggle" class="iconbtn" title="Toggle sidebar" aria-label="Toggle sidebar">☰</button>
+      <button id="sideToggle" class="iconbtn" title="Toggle sidebar  (⌘/Ctrl+B)" aria-label="Toggle sidebar">☰</button>
       <div class="cell goal"><span class="lbl">Goal</span><div class="val" id="topGoal">—</div></div>
       <div class="cell iter"><span class="lbl">Iter</span>
         <div class="val" id="iterRead">···<span class="cap"></span></div></div>
@@ -304,8 +330,9 @@ textarea{resize:vertical;min-height:72px}
   </div>
   <div class="formerr" id="fErr" role="alert"></div>
   <div class="actions">
+    <span class="sp"><span class="kbd">⌘/Ctrl ↵</span> to start</span>
     <button onclick="closeNew()">Cancel</button>
-        <button id="startBtn" class="primary" onclick="startSession()">Start</button>
+    <button id="startBtn" class="primary" onclick="startSession()">Start</button>
   </div>
 </div></div>
 
@@ -326,6 +353,7 @@ const esc = s => String(s??'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;',
 const pad3 = n => String(n).padStart(3,'0');
 let current = null, pinnedCommit = null, lastDiffCommit = null, lastRender = '', lastRail = '';
 let openIters = new Set(), touched = new Set(), autoIter = null, lastEntries = [];
+let openActs = new Set();
 
 /* instrument clock */
 setInterval(() => { $('clock').textContent = new Date().toISOString().slice(11,19) + ' UTC'; }, 1000);
@@ -354,6 +382,7 @@ async function tickRuns(){
 function selectRun(dir){
   current = dir; pinnedCommit = null; lastRender = ''; lastRail = '';
   openIters = new Set(); touched = new Set(); autoIter = null; lastEntries = [];
+  openActs = new Set();
   tickRun(); tickRuns();
 }
 
@@ -361,14 +390,14 @@ function selectRun(dir){
 function pulseSvg(entries, running){
   const iters = entries.filter(e => e.event === 'iteration').slice(-140);
   const step = 8, w = Math.max(600, iters.length*step + 26), h = 30, base = 19;
-  const parts = [`<line x1="0" y1="${base}" x2="${w}" y2="${base}" stroke="#2a2825"/>`];
+  const parts = [`<line x1="0" y1="${base}" x2="${w}" y2="${base}" stroke="#221f1d"/>`];
   iters.forEach((e, i) => {
     const x = 8 + i*step;
     parts.push(e.ok
-      ? `<line x1="${x}" y1="${base}" x2="${x}" y2="5" stroke="#97b58c" stroke-width="2"><title>iter ${e.iteration}: validated</title></line>`
-      : `<line x1="${x}" y1="${base}" x2="${x}" y2="${h-2}" stroke="#cd6f63" stroke-width="2"><title>iter ${e.iteration}: failed</title></line>`);
+      ? `<line x1="${x}" y1="${base}" x2="${x}" y2="5" stroke="#7d9a78" stroke-width="2"><title>iter ${e.iteration}: validated</title></line>`
+      : `<line x1="${x}" y1="${base}" x2="${x}" y2="${h-2}" stroke="#b56a5f" stroke-width="2"><title>iter ${e.iteration}: failed</title></line>`);
   });
-  if (running) parts.push(`<rect class="cursor" x="${8 + iters.length*step}" y="8" width="5" height="11" fill="#d97757"/>`);
+  if (running) parts.push(`<rect class="cursor" x="${8 + iters.length*step}" y="8" width="5" height="11" fill="#b06a4f"/>`);
   return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="xMinYMid meet"
     role="img" aria-label="iteration pulse: ${iters.filter(e=>e.ok).length} passed, ${iters.filter(e=>!e.ok).length} failed">${parts.join('')}</svg>`;
 }
@@ -401,11 +430,30 @@ function toggleRec(it){
   touched.add(it);
   renderTranscript(lastEntries, false);
 }
+function toggleAct(key){
+  if (openActs.has(key)) openActs.delete(key); else openActs.add(key);
+  renderTranscript(lastEntries, false);
+}
+/* a run of consecutive process steps, folded into one quiet block */
+function activityGroupHtml(group){
+  const key = 'act' + (group[0].iteration || 0);
+  const open = openActs.has(key);
+  const path = [...new Set(group.map(g => g.mode).filter(Boolean))].slice(0, 7);
+  const last = group[group.length - 1];
+  const rows = group.map(g =>
+    `<div class="actrow"><span class="k">${esc(g.mode||'')}</span><span>${esc(g.summary)}</span></div>`).join('');
+  const n = group.length;
+  return `<div class="actgroup ${open?'open':''}">
+    <div class="acthead" onclick="toggleAct('${key}')">
+      <span class="chev">▶</span>
+      <span class="actcount">${n} step${n>1?'s':''}</span>
+      <span class="actpath">${path.map(esc).join('  ›  ')}</span>
+      ${open?'':`<span class="actlast">${esc(last.summary||'')}</span>`}
+    </div>
+    <div class="actbody"><div class="abi">${rows}</div></div>
+  </div>`;
+}
 function entryHtml(e){
-  if (e.event === 'activity'){
-    const kind = e.mode ? `<span class="k">${esc(e.mode)}</span>` : '';
-    return `<div class="act">${kind}<span>${esc(e.summary)}</span></div>`;
-  }
   if (e.event === 'live'){
     return `<article class="rec open selected">
       <div class="rechead" style="cursor:default">
@@ -416,10 +464,10 @@ function entryHtml(e){
         <span class="flag warn">live</span>
         <span class="verdict ok"><span class="cursor">▮</span> Running</span>
       </div>
-      <div class="recbody">
+      <div class="recbody"><div class="rbi">
         <div class="recline execl"><span class="lbl">Exec</span><span class="txt">${esc(e.summary)}</span></div>
         <div class="recmeta"><span>not committed yet</span></div>
-      </div>
+      </div></div>
     </article>`;
   }
   if (e.event === 'iteration'){
@@ -435,16 +483,16 @@ function entryHtml(e){
         ${flags(e)}
         <span class="verdict ${e.ok?'ok':'bad'}">${e.ok?'Passed':'Failed'}</span>
       </div>
-      <div class="recbody">
+      <div class="recbody"><div class="rbi">
         <div class="recline plan"><span class="lbl">Plan</span><span class="txt">${title}</span></div>
         <div class="recline execl"><span class="lbl">Exec</span><span class="txt">${esc(e.summary||'(no summary)')}</span></div>
         ${e.files.length?`<div class="files">${e.files.map(f=>`<span class="file">${esc(f)}</span>`).join('')}</div>`:''}
         ${e.model_calls?`<div class="recline execl"><span class="lbl">Model</span><span class="txt">${e.model_calls} call${e.model_calls===1?'':'s'} · ${esc(e.model_seconds)}s</span></div>`:''}
         ${e.tool_runs.map(t=>`<div class="recline execl"><span class="lbl">Tool</span><span class="txt">${esc(t.name)} → ${esc(t.result)}</span></div>`).join('')}
-        ${e.warnings&&e.warnings.length?`<div class="errblock" style="color:var(--amber);background:rgba(217,119,87,.08)">${e.warnings.map(x=>esc(x)).join('<br>')}</div>`:''}
+        ${e.warnings&&e.warnings.length?`<div class="errblock" style="color:var(--amber);background:rgba(176,106,79,.09)">${e.warnings.map(x=>esc(x)).join('<br>')}</div>`:''}
         ${e.errors.length?`<div class="errblock">${e.errors.map(x=>esc(x)).join('<br>')}</div>`:''}
         <div class="recmeta">${e.commit?`<span class="hash" onclick="event.stopPropagation();loadDiff('${esc(e.commit)}',true)">${esc(e.commit)}</span><span>view diff →</span>`:'<span>no commit</span>'}</div>
-      </div>
+      </div></div>
     </article>`;
   }
   if (e.event === 'finished') return `<div class="evt finish"><b>◉ goal complete</b> ${esc(e.summary)}</div>`;
@@ -454,8 +502,17 @@ function entryHtml(e){
 }
 
 function renderTranscript(entries, allowScroll){
-  const html = entries.map(entryHtml).join('') ||
-    '<div class="empty"><p>spinning up…</p></div>';
+  let html = '', i = 0;
+  while (i < entries.length){
+    if (entries[i].event === 'activity'){       // fold a consecutive run of steps
+      const group = [];
+      while (i < entries.length && entries[i].event === 'activity'){ group.push(entries[i]); i++; }
+      html += activityGroupHtml(group);
+    } else {
+      html += entryHtml(entries[i]); i++;
+    }
+  }
+  if (!html) html = '<div class="empty"><p>spinning up…</p></div>';
   if (html === lastRender) return;
   const chat = $('chat');
   const nearBottom = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 160;
@@ -525,7 +582,9 @@ async function loadDiff(commit, pin){
   $('diffTitle').innerHTML = `Diff register · <span class="hash">${esc(commit)}</span>`;
   $('diffPin').innerHTML = pin ? `<button onclick="unpin()" style="padding:2px 10px;font-size:11px">follow latest</button>` : '';
   let r; try{ r = await (await fetch(`/api/diff?dir=${encodeURIComponent(current)}&commit=${commit}`)).json(); }catch(e){ return; }
-  $('diff').innerHTML = r.error ? `<span class="del">${esc(r.error)}</span>` : colorize(r.diff);
+  const d = $('diff');
+  d.innerHTML = r.error ? `<span class="del">${esc(r.error)}</span>` : colorize(r.diff);
+  d.classList.remove('swap'); void d.offsetWidth; d.classList.add('swap');  // retrigger fade
 }
 function unpin(){ pinnedCommit = null; lastRender = ''; $('diffPin').innerHTML = ''; tickRun(); }
 
@@ -570,13 +629,28 @@ function setMode(m){ mode = m; $('mReg').className = m ? '' : 'on'; $('mOver').c
 function openNew(){ $('overlay').classList.add('show'); $('fErr').textContent=''; loadModels(); $('fGoal').focus(); }
 function closeNew(){ $('overlay').classList.remove('show'); $('browser').style.display='none'; }
 $('newBtn').onclick = openNew;
+const typing = () => /^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement||{}).tagName||'');
+const modalOpen = () => $('overlay').classList.contains('show');
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape'){ closeNew(); $('copyOverlay').classList.remove('show'); }
+  if (e.key === 'Escape'){ closeNew(); $('copyOverlay').classList.remove('show'); return; }
+  if ((e.metaKey || e.ctrlKey) && (e.key === 'b' || e.key === 'B')){  // toggle sidebar
+    e.preventDefault(); $('side').classList.toggle('collapsed'); return;
+  }
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && modalOpen()){  // submit new session
+    e.preventDefault(); startSession(); return;
+  }
+  if (e.key === 'n' && !typing() && !modalOpen() && !e.metaKey && !e.ctrlKey){  // new session
+    e.preventDefault(); openNew();
+  }
 });
 async function loadModels(){
   try{
     const m = await (await fetch('/api/models')).json();
-    $('fModel').innerHTML = m.models.map(x => `<option ${x===m.default?'selected':''}>${esc(x)}</option>`).join('');
+    const recommended = new Set(m.recommended || []);
+    $('fModel').innerHTML = m.models.map(x => {
+      const label = recommended.has(x) ? `${x} · recommended` : x;
+      return `<option value="${esc(x)}" ${x===m.default?'selected':''}>${esc(label)}</option>`;
+    }).join('');
   }catch(e){}
 }
 async function pickFolder(){

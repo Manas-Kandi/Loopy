@@ -284,6 +284,29 @@ class TestEvidenceDrivenGuards(unittest.TestCase):
         finally:
             cleanup(project)
 
+    def test_bad_dashboard_scaffold_is_not_accepted(self):
+        project = make_run(
+            "Write a simple HTML page that shows a pretty dashboard with charts, "
+            "graphs, clean visuals, data and metrics.",
+            "mock/bad_dashboard",
+            {"repair_attempts": 0},
+        )
+        try:
+            entries = run_loop(project, max_iterations=2)
+            decompose = events(entries, "decompose")[0]
+            self.assertTrue(any("FRONTEND" in err for err in decompose["errors"]))
+            self.assertFalse((project / "TASKS.md").exists(),
+                             "weak dashboard decomposition should fall back to plain planning")
+            iters = iteration_entries(entries)
+            self.assertTrue(iters)
+            self.assertFalse(iters[0]["validation_passed"])
+            self.assertEqual(iters[0]["failure_kind"], "frontend_static")
+            joined = "\n".join(iters[0]["errors"])
+            self.assertIn("stylesheet link", joined)
+            self.assertIn("empty placeholders", joined)
+        finally:
+            cleanup(project)
+
     def test_queued_task_selection_is_rewritten_to_next_task(self):
         project = make_run("Greeting tool", "mock/jump_ahead")
         try:

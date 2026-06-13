@@ -10,9 +10,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ninexf import CONFIG_FILENAME
+from ninexf.models import DEFAULT_MODEL
 
 DEFAULTS = {
-    "model": "ollama/qwen2.5-coder:7b",
+    "model": DEFAULT_MODEL,
     "endpoint": "http://localhost:11434",
     "max_iterations": 50,
     "delay_seconds": 5,

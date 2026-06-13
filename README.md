@@ -12,8 +12,8 @@ and a run can FINISH — verified against held-out acceptance criteria — inste
 of only hitting the iteration cap.
 
 v0.4 turns the harness into an **overnight engine**: the bet is that a small
-local model (7B) plus hours of verified search can approach big-model output
-quality — trading time, which is free, for API spend, which isn't. New: an
+local model (7B/20B class) plus hours of verified search can approach big-model
+output quality — trading time, which is free, for API spend, which isn't. New: an
 in-iteration repair loop (validation errors fed straight back to the executor),
 best-state checkpointing (`keep_best` — the run ships the best state it ever
 reached, not the last one), wall-clock budgets (`9xf run --hours 8`), and an
@@ -61,6 +61,10 @@ pip install -e .
 # create a run (local model via Ollama is the default)
 9xf init --goal "Write a CLI tool that organizes files by type" \
          --model ollama/qwen2.5-coder:7b --dir ~/runs/organizer
+
+# stronger local option if you have the RAM:
+#   ollama pull gpt-oss:20b
+#   9xf init --goal "..." --model ollama/gpt-oss:20b --dir ~/runs/my-run
 
 # start the loop
 9xf run --dir ~/runs/organizer --max-iterations 20 --delay 30
@@ -121,9 +125,15 @@ What `--preset overnight` turns on (each independently configurable):
   mode), the critic reviewing every passing diff, branch-and-explore enabled
   with a higher episode cap, and held-out acceptance tests generated at init.
 
-Recommended overnight pairing: `ollama/qwen2.5-coder:7b` with `num_ctx` raised
-to 32768 in `9xf.config.json` if you have the RAM. As of v0.5 every context
-budget scales off `num_ctx` automatically, so that one knob is the whole tune.
+Recommended overnight pairings:
+
+- `ollama/qwen2.5-coder:7b` when you want a fast baseline.
+- `ollama/gpt-oss:20b` when you want a stronger local model and have the RAM.
+  Install it with `ollama pull gpt-oss:20b`.
+
+For either model, raise `num_ctx` to 32768 in `9xf.config.json` if you have the
+RAM. As of v0.5 every context budget scales off `num_ctx` automatically, so
+that one knob is the whole tune.
 
 ## The app (v0.6)
 
@@ -316,7 +326,8 @@ history — so the loop can learn from its own helpers.
 Set in `9xf.config.json` (written at init, never modified by the agent):
 
 - `ollama/<model>` — local, default (`ollama/qwen2.5-coder:7b`); endpoint
-  configurable via `endpoint`
+  configurable via `endpoint`. Recommended options include
+  `ollama/qwen2.5-coder:7b` and `ollama/gpt-oss:20b`.
 - `anthropic/<model>` — API mode for comparison runs; reads the key from the
   env var named by `api_key_env` (default `ANTHROPIC_API_KEY`)
 - `mock` — deterministic scripted backend for testing the harness itself.

@@ -63,6 +63,19 @@ BAD_CRITERION_PATTERNS = (
     "file is empty",
 )
 
+FRONTEND_SCAFFOLD_PATTERNS = (
+    "basic html structure",
+    "basic structure",
+    "basic styling",
+    "empty container",
+    "placeholder",
+    "container div",
+    "div for charts",
+    "div for graphs",
+    "charts and graphs div",
+    "charts-and-graphs",
+)
+
 ROOT_WRITE_PATTERNS = (
     "root",
     "project root",
@@ -212,6 +225,62 @@ def _mentions_forbidden_path(text: str) -> bool:
     return False
 
 
+def _is_frontend_goal(goal: str) -> bool:
+    lowered = goal.lower()
+    return any(term in lowered for term in (
+        "html", "css", "web page", "webpage", "website", "frontend",
+        "front-end", "ui", "dashboard",
+    ))
+
+
+def _is_dashboard_goal(goal: str) -> bool:
+    lowered = goal.lower()
+    return any(term in lowered for term in (
+        "dashboard", "metric", "metrics", "kpi", "analytics", "chart",
+        "charts", "graph", "graphs", "data",
+    ))
+
+
+def _frontend_quality_rejections(
+    goal: str,
+    tasks: list[str],
+    criteria: list[str],
+) -> list[str]:
+    if not _is_dashboard_goal(goal):
+        return []
+    blob = " ".join(tasks + criteria).lower()
+    criteria_blob = " ".join(criteria).lower()
+    rejections: list[str] = []
+
+    has_metric_requirement = (
+        re.search(r"\b(metric|metrics|kpi|stat|stats|card|cards)\b", criteria_blob)
+        and re.search(r"\b(value|values|number|numeric|data|percent|percentage|currency|sample)\b", criteria_blob)
+    )
+    has_chart_requirement = (
+        re.search(r"\b(chart|charts|graph|graphs|bar|line|sparkline|svg|table)\b", criteria_blob)
+        and re.search(r"\b(visible|data|point|points|mark|marks|bar|bars|line|rows|not empty|non-empty)\b", criteria_blob)
+    )
+    has_style_requirement = (
+        re.search(r"\b(css|stylesheet|style|layout|responsive|polished|clean visual|visual)\b", criteria_blob)
+        and "basic styling" not in criteria_blob
+    )
+    if not (has_metric_requirement and has_chart_requirement and has_style_requirement):
+        missing = []
+        if not has_metric_requirement:
+            missing.append("metric/data-value criterion")
+        if not has_chart_requirement:
+            missing.append("visible chart/graph criterion")
+        if not has_style_requirement:
+            missing.append("non-basic styling/layout criterion")
+        rejections.append(
+            "FRONTEND: decomposition lacks " + ", ".join(missing)
+        )
+
+    if "empty" in blob and re.search(r"\b(chart|graph|metric|kpi)\b", blob):
+        rejections.append("FRONTEND: decomposition allows empty visual placeholders")
+    return rejections
+
+
 def sanitize_decomposition(
     goal: str,
     tasks: list[str],
@@ -224,6 +293,7 @@ def sanitize_decomposition(
     Returns (tasks, criteria, rejection reasons).
     """
     goal_l = goal.lower()
+    frontend_goal = _is_frontend_goal(goal)
     rejections: list[str] = []
 
     def keep(kind: str, text: str) -> bool:
@@ -233,6 +303,9 @@ def sanitize_decomposition(
         if kind == "CRITERION":
             hits.extend(p for p in BAD_CRITERION_PATTERNS
                         if p in lowered and p not in goal_l)
+        if frontend_goal:
+            hits.extend(p for p in FRONTEND_SCAFFOLD_PATTERNS
+                        if p in lowered and p not in goal_l)
         if hits or (_mentions_forbidden_path(text) and "root" not in goal_l):
             reason = ", ".join(hits) if hits else "non-writable/root path"
             rejections.append(f"{kind}: {text} ({reason})")
@@ -241,6 +314,10 @@ def sanitize_decomposition(
 
     clean_tasks = [t for t in tasks if keep("TASK", t)]
     clean_criteria = [c for c in criteria if keep("CRITERION", c)]
+    quality_rejections = _frontend_quality_rejections(goal, clean_tasks, clean_criteria)
+    if quality_rejections:
+        rejections.extend(quality_rejections)
+        return [], [], rejections
     return clean_tasks, clean_criteria, rejections
 
 

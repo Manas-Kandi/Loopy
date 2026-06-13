@@ -14,7 +14,9 @@ import subprocess
 import sys
 import ast
 from dataclasses import dataclass, field
+from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import urlparse
 
 DENY_NETWORK_PROFILE = '(version 1)(allow default)(deny network*)'
 
@@ -208,6 +210,230 @@ def _entry_static_errors(project_dir: Path, script: Path) -> list[str]:
     return errors
 
 
+class _HTMLProbe(HTMLParser):
+    """Small stdlib-only HTML probe for local static UI checks."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.tags: list[tuple[str, dict[str, str]]] = []
+        self.text_parts: list[str] = []
+        self.style_text: list[str] = []
+        self._skip_text = 0
+        self._in_style = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attrs_dict = {k.lower(): (v or "") for k, v in attrs}
+        lowered = tag.lower()
+        self.tags.append((lowered, attrs_dict))
+        if lowered == "script":
+            self._skip_text += 1
+        elif lowered == "style":
+            self._in_style += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        lowered = tag.lower()
+        if lowered == "script" and self._skip_text:
+            self._skip_text -= 1
+        elif lowered == "style" and self._in_style:
+            self._in_style -= 1
+
+    def handle_data(self, data: str) -> None:
+        if self._in_style:
+            self.style_text.append(data)
+        elif not self._skip_text and data.strip():
+            self.text_parts.append(data.strip())
+
+
+_DASHBOARD_TERMS = (
+    "dashboard", "metric", "metrics", "kpi", "analytics", "chart", "charts",
+    "graph", "graphs", "data", "revenue", "traffic", "conversion",
+)
+
+
+def _inside_project(project_dir: Path, path: Path) -> bool:
+    try:
+        path.resolve().relative_to(project_dir.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _display_rel(project_dir: Path, path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(project_dir.resolve()))
+    except ValueError:
+        return str(path)
+
+
+def _frontend_html_files(project_dir: Path, written_files: list[Path]) -> list[Path]:
+    frontend_written = [
+        p for p in written_files
+        if p.suffix.lower() in {".html", ".htm", ".css"}
+        and _inside_project(project_dir, p)
+    ]
+    if not frontend_written:
+        return []
+    html_files = {
+        p for p in written_files
+        if p.suffix.lower() in {".html", ".htm"} and _inside_project(project_dir, p)
+    }
+    for root in (project_dir / "src", project_dir):
+        if root.exists():
+            for p in root.rglob("*.html"):
+                if ".git" not in p.parts and _inside_project(project_dir, p):
+                    html_files.add(p)
+    return sorted(html_files)
+
+
+def _resolve_local_asset(project_dir: Path, html_file: Path, href: str) -> tuple[Path | None, str | None]:
+    parsed = urlparse(href)
+    if parsed.scheme or parsed.netloc:
+        return None, "external URL"
+    if not parsed.path:
+        return None, "empty path"
+    if parsed.path.startswith("/"):
+        candidate = project_dir / parsed.path.lstrip("/")
+    else:
+        candidate = html_file.parent / parsed.path
+    candidate = candidate.resolve()
+    if not _inside_project(project_dir, candidate):
+        return candidate, "outside project"
+    return candidate, None
+
+
+def _has_dashboard_intent(html_file: Path, source: str, visible_text: str) -> bool:
+    haystack = f"{html_file.name} {source} {visible_text}".lower()
+    return any(term in haystack for term in _DASHBOARD_TERMS)
+
+
+def _numeric_value_count(text: str) -> int:
+    return len(re.findall(r"(?<![\w.])[$]?\d[\d,]*(?:\.\d+)?[kKmMbB]?%?(?![\w.])", text))
+
+
+def _has_visible_chart(probe: _HTMLProbe, source: str) -> bool:
+    tags = [tag for tag, _ in probe.tags]
+    if "table" in tags:
+        cells = sum(1 for tag in tags if tag in {"td", "th"})
+        rows = tags.count("tr")
+        if cells >= 4 or rows >= 3:
+            return True
+    if "svg" in tags:
+        marks = sum(1 for tag in tags if tag in {
+            "rect", "path", "circle", "line", "polyline", "polygon", "text"
+        })
+        if marks >= 3:
+            return True
+    if any(tag in {"meter", "progress"} for tag in tags):
+        return True
+    visual_classes = 0
+    for tag, attrs in probe.tags:
+        if tag not in {"div", "span", "li"}:
+            continue
+        label = f"{attrs.get('class', '')} {attrs.get('id', '')}".lower()
+        style = attrs.get("style", "").lower()
+        if any(term in label for term in ("bar", "spark", "chart", "graph")) and (
+            re.search(r"(width|height)\s*:\s*\d", style)
+            or re.search(r"aria-valuenow\s*=", source, re.I)
+        ):
+            visual_classes += 1
+    return visual_classes >= 3
+
+
+def _frontend_static_errors(project_dir: Path, written_files: list[Path]) -> tuple[list[str], bool]:
+    """Catch broken local HTML/CSS wiring and empty dashboard-shaped output.
+
+    This is intentionally a shallow guard. It does not grade design taste, but
+    it prevents the Run6 failure mode where an unstyled page with an empty
+    chart placeholder passes because Python validation had nothing to execute.
+    """
+    errors: list[str] = []
+    html_files = _frontend_html_files(project_dir, written_files)
+    if not html_files:
+        return errors, False
+
+    for html_file in html_files:
+        rel = _display_rel(project_dir, html_file)
+        try:
+            source = html_file.read_text()
+        except (OSError, UnicodeDecodeError) as e:
+            errors.append(f"frontend_static: {rel}: cannot read HTML: {e}")
+            continue
+        probe = _HTMLProbe()
+        try:
+            probe.feed(source)
+        except Exception as e:
+            errors.append(f"frontend_static: {rel}: cannot parse HTML: {e}")
+            continue
+
+        stylesheet_links = []
+        valid_stylesheets = 0
+        for tag, attrs in probe.tags:
+            if tag != "link":
+                continue
+            rel_attr = attrs.get("rel", "").lower()
+            href = attrs.get("href", "").strip()
+            if "stylesheet" not in rel_attr:
+                continue
+            stylesheet_links.append(href)
+            asset, problem = _resolve_local_asset(project_dir, html_file, href)
+            if problem:
+                errors.append(
+                    f"frontend_static: {rel}: stylesheet link {href!r} uses {problem}; "
+                    "use a local CSS file under src/"
+                )
+                continue
+            if asset is None or not asset.exists():
+                target = _display_rel(project_dir, asset) if asset and _inside_project(project_dir, asset) else href
+                errors.append(
+                    f"frontend_static: {rel}: stylesheet link {href!r} does not resolve "
+                    f"to an existing file ({target})"
+                )
+                continue
+            valid_stylesheets += 1
+
+        visible_text = " ".join(probe.text_parts)
+        dashboard_like = _has_dashboard_intent(html_file, source, visible_text)
+        has_inline_style = bool("".join(probe.style_text).strip())
+        if dashboard_like and not valid_stylesheets and not has_inline_style:
+            if stylesheet_links:
+                errors.append(
+                    f"frontend_static: {rel}: dashboard-like HTML has no valid stylesheet loaded"
+                )
+            else:
+                errors.append(
+                    f"frontend_static: {rel}: dashboard-like HTML needs local CSS or a "
+                    "non-empty <style> block; avoid browser-default rendering"
+                )
+
+        empty_visual = re.search(
+            r"<(?P<tag>div|section|article)\b[^>]*(?:class|id)=['\"][^'\"]*"
+            r"(?:chart|graph|metric|kpi)[^'\"]*['\"][^>]*>\s*</(?P=tag)>",
+            source,
+            flags=re.I | re.S,
+        )
+        if dashboard_like and empty_visual:
+            errors.append(
+                f"frontend_static: {rel}: dashboard/chart/metric containers must "
+                "contain visible content, not empty placeholders"
+            )
+
+        if dashboard_like:
+            numbers = _numeric_value_count(visible_text)
+            if numbers < 3:
+                errors.append(
+                    f"frontend_static: {rel}: dashboard-like HTML exposes only "
+                    f"{numbers} numeric value(s); include real metric values/data points"
+                )
+            chart_terms = any(term in source.lower() for term in ("chart", "charts", "graph", "graphs"))
+            if chart_terms and not _has_visible_chart(probe, source):
+                errors.append(
+                    f"frontend_static: {rel}: chart/graph language is present but "
+                    "no visible chart marks, table data, bars, meter, or progress elements were found"
+                )
+
+    return errors, True
+
+
 def _import_check(project_dir: Path, written: list[Path], timeout: float, allow_network: bool) -> list[str]:
     """Execute each written src module in the sandbox (runpy, not __main__).
     Catches what compile-check can't: missing imports, module-level NameErrors,
@@ -297,6 +523,11 @@ def validate(
                for p in written_files):
             detail_parts.append("import-check")
     if not errors:
+        frontend_errors, frontend_checked = _frontend_static_errors(project_dir, written_files)
+        if frontend_checked:
+            detail_parts.append("frontend-static")
+        errors.extend(frontend_errors)
+    if not errors:
         entry = _entry_point(project_dir)
         if entry is not None:
             errors = _entry_static_errors(project_dir, entry)
@@ -321,6 +552,8 @@ def validate(
             failure_kind = "slow_entry"
         elif first_error.startswith("slow_test:"):
             failure_kind = "slow_test"
+        elif first_error.startswith("frontend_static:"):
+            failure_kind = "frontend_static"
         elif first_error.startswith("tests:"):
             failure_kind = "tests"
         elif "import/exec failed" in first_error:

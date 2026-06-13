@@ -162,6 +162,11 @@ Rules:
   should contain behavior.
 - Entry points and demos must be bounded and fast: no sleeps, infinite loops,
   long animations, or waiting for user input unless the goal explicitly asks.
+- For HTML/UI/dashboard goals, decompose toward a complete visible first
+  screen, not scaffolding. Do not make tasks or criteria that only add empty
+  containers, headers, footers, or generic "basic styling". Dashboard criteria
+  must require real sample data/metric values, visible chart or graph marks,
+  and a local stylesheet/layout that actually loads.
 - One line per task/criterion. No other text."""
 
 DECOMPOSE_RETRY_NOTE = """
@@ -340,6 +345,10 @@ Rules:
 - Entry points and demos must terminate quickly. Do not use time.sleep(),
   infinite loops, long animations, or interactive input unless the goal
   explicitly requires them.
+- For HTML/UI work, produce complete visible output in the edited HTML/CSS.
+  Local stylesheet links must resolve from the HTML file. Dashboard/chart
+  goals need real sample data, multiple visible metric values, and visible
+  chart or graph marks; never leave empty chart/metric placeholders.
 - Follow the PROJECT CONTRACT. Do not duplicate canonical implementations.
 - Prefer implementation fixes over weakening tests. Edit tests only when they
   are nondeterministic, contradict the contract, or assert the wrong behavior.

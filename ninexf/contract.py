@@ -13,6 +13,22 @@ CONTRACT_FILENAME = "CONTRACT.md"
 CONTRACT_HEADER = "# 9xf project contract - managed by the harness"
 
 
+def _is_frontend_goal(goal: str) -> bool:
+    lowered = goal.lower()
+    return any(term in lowered for term in (
+        "html", "css", "web page", "webpage", "website", "frontend",
+        "front-end", "ui", "dashboard",
+    ))
+
+
+def _is_dashboard_goal(goal: str) -> bool:
+    lowered = goal.lower()
+    return any(term in lowered for term in (
+        "dashboard", "metric", "metrics", "kpi", "analytics", "chart",
+        "charts", "graph", "graphs", "data",
+    ))
+
+
 def contract_path(project_dir: Path) -> Path:
     return project_dir / CONTRACT_FILENAME
 
@@ -23,13 +39,7 @@ def save_contract(
     tasks: list[str],
     criteria: list[str],
 ) -> None:
-    lines = [
-        CONTRACT_HEADER,
-        "",
-        "## Goal",
-        goal.strip(),
-        "",
-        "## Engineering Rules",
+    engineering_rules = [
         "- Source code lives in `src/`; tests live in `tests/`; helper scripts live in `tools/`.",
         "- Use only the Python standard library unless the user goal explicitly says otherwise.",
         "- Keep one canonical implementation for each public class/function; do not duplicate it in `src/main.py` and a module.",
@@ -38,6 +48,25 @@ def save_contract(
         "- Tests must be deterministic: do not call `time.sleep()`, `time.time()`, or `time.monotonic()` in tests; inject clocks or use fixed numeric timestamps.",
         "- Entry points and demos must be bounded and fast: no sleeps, infinite loops, long animations, or waiting for user input unless the goal explicitly asks.",
         "- Do not request external tools such as pytest, flake8, npm, pip, or shell commands.",
+    ]
+    if _is_frontend_goal(goal):
+        engineering_rules.extend([
+            "- HTML/UI output must be a complete visible first screen, not empty scaffolding or browser-default markup.",
+            "- Local stylesheet/script links must resolve relative to the HTML file and stay inside `src/` unless the user explicitly asks otherwise.",
+        ])
+    if _is_dashboard_goal(goal):
+        engineering_rules.extend([
+            "- Dashboard pages must include real sample data, at least three visible metric values, and visible chart/graph marks.",
+            "- Do not use empty chart, graph, metric, card, or KPI placeholders as evidence of completed UI work.",
+        ])
+    lines = [
+        CONTRACT_HEADER,
+        "",
+        "## Goal",
+        goal.strip(),
+        "",
+        "## Engineering Rules",
+        *engineering_rules,
         "",
         "## Ordered Work",
     ]
