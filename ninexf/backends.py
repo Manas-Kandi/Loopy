@@ -75,6 +75,7 @@ class OllamaBackend(Backend):
         self.endpoint = config.endpoint.rstrip("/")
         self.num_ctx = config.num_ctx
         self.default_temperature = config.temperature
+        self.timeout = config.backend_timeout
 
     def complete(self, system: str, user: str, temperature: float | None = None) -> str:
         data = _post_json(
@@ -91,6 +92,7 @@ class OllamaBackend(Backend):
                             "num_ctx": self.num_ctx},
             },
             headers={},
+            timeout=self.timeout,
         )
         if context_overflowed(data.get("prompt_eval_count"), self.num_ctx):
             self.note_overflow()
@@ -107,6 +109,7 @@ class AnthropicBackend(Backend):
     def __init__(self, config: Config):
         super().__init__()
         self.model = config.model_name
+        self.timeout = config.backend_timeout
         self.api_key = os.environ.get(config.api_key_env, "")
         if not self.api_key:
             raise BackendError(
@@ -126,6 +129,7 @@ class AnthropicBackend(Backend):
             "https://api.anthropic.com/v1/messages",
             payload,
             headers={"x-api-key": self.api_key, "anthropic-version": "2023-06-01"},
+            timeout=self.timeout,
         )
         blocks = data.get("content", [])
         text = "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
@@ -652,6 +656,10 @@ class MockBackend(Backend):
             return "VERDICT: ACCEPT"
         if "Diagnose now" in user:
             return "CAUSE: the same validation error recurred.\nPATCH_PLAN: make the smallest code change that directly addresses the traceback."
+        if "Extract only NEW, actionable guidance" in user:
+            if "validation_passed: False" in user:
+                return "AVOID: repeating a failing implementation without first addressing the validation error."
+            return "TRY: after a green change, inspect the result for missing polish before moving on."
         if self.scenario == "finisher":
             return self._finisher(user)
         if self.scenario == "regressor":

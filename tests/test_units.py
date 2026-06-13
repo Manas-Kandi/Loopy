@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from ninexf.backends import BackendError, _post_json, context_overflowed
+from ninexf.backends import BackendError, OllamaBackend, _post_json, context_overflowed
 from ninexf.candidates import CandidateResult, parse_critic_output, pick_winner
 from ninexf.config import PRESETS, Config, load_config, write_config
 from ninexf.contract import contract_for_prompt, save_contract
@@ -186,6 +186,16 @@ class TestBackendAndStatus(unittest.TestCase):
             with self.assertRaisesRegex(BackendError, "timeout calling"):
                 _post_json("http://127.0.0.1:11434/api/chat", {}, {}, timeout=1)
 
+    def test_ollama_backend_uses_configured_timeout(self):
+        cfg = Config(model="ollama/test:latest", backend_timeout=123)
+        backend = OllamaBackend(cfg)
+        with mock.patch(
+            "ninexf.backends._post_json",
+            return_value={"message": {"content": "ok"}, "prompt_eval_count": 12},
+        ) as post:
+            self.assertEqual(backend.complete("system", "user"), "ok")
+        self.assertEqual(post.call_args.kwargs["timeout"], 123)
+
     def test_running_state_with_dead_pid_is_failed(self):
         state = {"running": True, "pid": 12345, "ts": "2026-06-12T03:38:59+00:00"}
         with mock.patch("ninexf.dashboard._pid_alive", return_value=False):
@@ -297,6 +307,10 @@ class TestPresets(unittest.TestCase):
         self.assertTrue(cfg.explore_enabled)
         self.assertEqual(cfg.repair_attempts, 2)
         self.assertEqual(cfg.format_retry_attempts, 2)
+        self.assertEqual(cfg.backend_timeout, 1200)
+        self.assertTrue(cfg.reflection_enabled)
+        self.assertEqual(cfg.reflection_every, 1)
+        self.assertEqual(cfg.reflection_max_notes, 4)
         self.assertTrue(cfg.keep_best)
         self.assertTrue(cfg.acceptance_tests)
         self.assertEqual(cfg.max_hours, 8)

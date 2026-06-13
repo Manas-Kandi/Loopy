@@ -48,12 +48,13 @@ from ninexf.prompts import (
     EXECUTOR_SYSTEM, EXECUTOR_USER, EXPLORE_NUDGE_A, EXPLORE_NUDGE_B,
     FORMAT_RETRY_NOTE,
     MODE_BUILD, MODE_FIX, MODE_REVIEW, NO_TESTS_NOTE, NOTES_SECTION,
-    CONTRACT_SECTION, PLANNER_SYSTEM, PLANNER_USER, REPAIR_NOTE, REVISE_NOTE, STUCK_NUDGE,
+    CONTRACT_SECTION, PLANNER_SYSTEM, PLANNER_USER, REFLECTION_SYSTEM,
+    REFLECTION_USER, REPAIR_NOTE, REVISE_NOTE, STUCK_NUDGE,
     TASK_ELIGIBILITY_NUDGE,
     TASK_CHECK_SYSTEM, TASK_CHECK_USER, TASKS_SECTION,
     VERIFY_DONE_SYSTEM, VERIFY_DONE_USER,
 )
-from ninexf.registry import append_activity, write_state
+from ninexf.registry import append_activity, read_state, write_state
 from ninexf.sandbox import WRITABLE_DIRS, ContainmentViolation, safe_write
 from ninexf.stuck import detect_signals
 from ninexf.tasks import (
@@ -72,6 +73,7 @@ CRITIC_DIFF_CHARS = 6000
 REPAIR_FILES_CHARS = 12000  # how much of the broken files the repair prompt shows
 REPAIR_CONTEXT_DIRS = {"src", "tests", "tools"}
 VALIDATION_TOOL_NAMES = {"unittest"}
+REFLECTION_LINE_RE = re.compile(r"^(LEARN|AVOID|TRY):\s*(?P<text>.+?)\s*$", re.I)
 
 
 def _add_repair_path(project_dir: Path, rels: list[str], path: Path) -> None:
@@ -190,6 +192,21 @@ class LoopRunner:
             "ok": False,
             "error": "",
         }
+        try:
+            state = read_state(self.project_dir)
+            write_state(
+                self.project_dir,
+                running=True,
+                iteration=int(state.get("iteration", 0) or 0),
+                mode=state.get("mode", "model") or "model",
+                subtask=(
+                    f"waiting for model: {purpose} "
+                    f"(timeout {self.config.backend_timeout:g}s)"
+                ),
+                ts=now_iso(),
+            )
+        except Exception:
+            pass
         try:
             response = self.backend.complete(system, user, temperature=temperature)
             record["response_chars"] = len(response)
@@ -852,6 +869,100 @@ class LoopRunner:
         except Exception as e:
             return f"CAUSE: diagnosis failed: {e}\nPATCH_PLAN: use validation evidence directly"
 
+    def _reflection_due(
+        self,
+        iteration: int,
+        *,
+        failed: bool,
+        regression: bool,
+        stuck_signals: list[str],
+        parse_warnings: list[str],
+        critic_verdict: str,
+    ) -> bool:
+        cfg = self.config
+        if not (cfg.notes_enabled and cfg.reflection_enabled):
+            return False
+        if failed or regression or stuck_signals or parse_warnings:
+            return True
+        if critic_verdict == "REVISE":
+            return True
+        return cfg.reflection_every > 0 and iteration % cfg.reflection_every == 0
+
+    def _parse_reflection_notes(self, raw: str, existing_notes: str) -> list[str]:
+        existing = existing_notes.lower()
+        notes: list[str] = []
+        seen: set[str] = set()
+        for line in raw.splitlines():
+            m = REFLECTION_LINE_RE.match(line.strip())
+            if not m:
+                continue
+            label = line.split(":", 1)[0].upper()
+            text = m.group("text").strip()
+            if not text:
+                continue
+            note = f"{label}: {text}"
+            key = re.sub(r"\s+", " ", note.lower())
+            if key in seen or key in existing:
+                continue
+            seen.add(key)
+            notes.append(note[:300])
+            if len(notes) >= self.config.reflection_max_notes:
+                break
+        return notes
+
+    def _reflect(
+        self,
+        iteration: int,
+        *,
+        mode: str,
+        subtask: str,
+        outcome: ExecOutcome,
+        files_written: list[str],
+        validation_passed: bool,
+        errors: list[str],
+        regression: bool,
+        stuck_signals: list[str],
+        critic_verdict: str,
+        diagnosis: str,
+        codebase: str,
+        history: str,
+    ) -> list[str]:
+        append_activity(self.project_dir, "reflecting on recent evidence",
+                        iteration=iteration, kind="reflection")
+        notes = notes_for_prompt(self.project_dir) if self.config.notes_enabled else ""
+        try:
+            raw = self._complete(
+                "reflection",
+                REFLECTION_SYSTEM,
+                REFLECTION_USER.format(
+                    goal=self.goal,
+                    contract=contract_for_prompt(self.project_dir) or "(none)",
+                    codebase=codebase[: self.config.snapshot_budget],
+                    history=history,
+                    mode=mode,
+                    subtask=subtask,
+                    summary=outcome.parsed.summary,
+                    files=", ".join(files_written) or "(none)",
+                    validation_passed=validation_passed,
+                    validation_detail=outcome.validation_detail,
+                    errors="; ".join(str(e) for e in errors)[:1200] or "(none)",
+                    parse_warnings="; ".join(outcome.parse_warnings) or "(none)",
+                    regression=regression,
+                    stuck_signals=", ".join(stuck_signals) or "(none)",
+                    diagnosis=diagnosis or "(none)",
+                    notes=notes or "(none)",
+                ),
+            )
+        except BackendError as e:
+            append_activity(self.project_dir, f"reflection skipped: {e}",
+                            iteration=iteration, kind="error")
+            return []
+        learned = self._parse_reflection_notes(raw, notes)
+        if learned:
+            append_activity(self.project_dir, f"learned {len(learned)} prompt note(s)",
+                            iteration=iteration, kind="reflection")
+        return learned
+
     # -- in-iteration repair (overnight) -----------------------------------------
 
     def _repair_loop(self, iteration: int, subtask: str, executor_user: str,
@@ -1064,6 +1175,7 @@ class LoopRunner:
 
         failed = not validation_passed or bool(errors)
         regression = prev_passed and failed
+        files_written_rel = [str(p.relative_to(self.project_dir)) for p in written]
 
         # task bookkeeping: only the harness marks a task done — green iteration
         # plus a YES from a one-line completion check. Repeated failures defer
@@ -1097,8 +1209,36 @@ class LoopRunner:
                 harness_notes.append(
                     f"HARNESS: iteration {iteration} broke previously-working code "
                     f"({'; '.join(str(x) for x in errors)[:150]})")
-            notes_added = append_notes(self.project_dir, iteration,
-                                       agent_notes + harness_notes, cfg.notes_max_lines)
+            reflection_notes: list[str] = []
+            if self._reflection_due(
+                iteration,
+                failed=failed,
+                regression=regression,
+                stuck_signals=stuck_signals,
+                parse_warnings=outcome.parse_warnings,
+                critic_verdict=critic_verdict,
+            ):
+                reflection_notes = self._reflect(
+                    iteration,
+                    mode=mode,
+                    subtask=subtask,
+                    outcome=outcome,
+                    files_written=files_written_rel,
+                    validation_passed=validation_passed,
+                    errors=errors,
+                    regression=regression,
+                    stuck_signals=stuck_signals,
+                    critic_verdict=critic_verdict,
+                    diagnosis=diagnosis,
+                    codebase=exec_codebase,
+                    history=history,
+                )
+            notes_added = append_notes(
+                self.project_dir, iteration, agent_notes + harness_notes,
+                cfg.notes_max_lines)
+            notes_added += append_notes(
+                self.project_dir, iteration, reflection_notes,
+                cfg.notes_max_lines, source="reflection")
 
         # 5. commit (failed attempts included — research data)
         status = "failed" if failed else "ok"
@@ -1114,7 +1254,7 @@ class LoopRunner:
             timestamp=now_iso(),
             subtask=subtask,
             summary=parsed.summary,
-            files_written=[str(p.relative_to(self.project_dir)) for p in written],
+            files_written=files_written_rel,
             validation_passed=validation_passed,
             validation_detail=validation_detail,
             errors=errors,

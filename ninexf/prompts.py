@@ -121,6 +121,49 @@ timing.
 
 Diagnose now."""
 
+REFLECTION_SYSTEM = """\
+You are the self-improvement step of an autonomous coding loop. Do not write
+code. Your job is to turn recent evidence into compact operating guidance for
+future planner/executor prompts. Only produce guidance that is directly
+supported by the evidence. Reply with at most four lines, each starting with
+one of:
+LEARN: <what worked or what the current implementation actually is>
+AVOID: <specific repeated mistake to avoid next>
+TRY: <specific next working habit, validation habit, or refinement tactic>
+No preamble, no markdown, no generic advice."""
+
+REFLECTION_USER = """\
+GOAL:
+{goal}
+
+PROJECT CONTRACT:
+{contract}
+
+CURRENT CODEBASE:
+{codebase}
+
+RECENT HISTORY:
+{history}
+
+CURRENT ITERATION:
+mode: {mode}
+subtask: {subtask}
+summary: {summary}
+files_written: {files}
+validation_passed: {validation_passed}
+validation_detail: {validation_detail}
+errors: {errors}
+parse_warnings: {parse_warnings}
+regression: {regression}
+stuck_signals: {stuck_signals}
+diagnosis: {diagnosis}
+
+EXISTING NOTES:
+{notes}
+
+Extract only NEW, actionable guidance that would improve the next planner or
+executor prompt. Prefer concrete refinement habits over broad slogans."""
+
 EXPLORE_NUDGE_A = """
 THE LOOP IS HARD-STUCK: recent iterations keep failing the same way and a
 rollback did not help. Ignore the failed approach entirely. Propose ONE next

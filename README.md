@@ -113,6 +113,12 @@ What `--preset overnight` turns on (each independently configurable):
   executor has a usable intent but misses the required `SUMMARY:` + `FILE:`
   block protocol, the harness asks for the same change again in parseable form
   before touching the working tree.
+- **Self-reflection** (`reflection_enabled`, default on): after failures,
+  regressions, stuck signals, parse drift, and periodic green iterations, the
+  model performs a no-write reflection pass over recent evidence. It emits
+  compact `LEARN:` / `AVOID:` / `TRY:` guidance into `NOTES.md`, which is fed
+  back into future planner and executor prompts. This is the loop refining its
+  own working prompt, not just checking off tasks.
 - **Best-state checkpointing** (`keep_best`, default on): every committed state
   is scored — held-out acceptance first, then validation, task progress, test
   count — and at shutdown the working tree is restored to the best-ever state
@@ -134,6 +140,10 @@ Recommended overnight pairings:
 For either model, raise `num_ctx` to 32768 in `9xf.config.json` if you have the
 RAM. As of v0.5 every context budget scales off `num_ctx` automatically, so
 that one knob is the whole tune.
+
+Large local models can also need several minutes for a cold first response.
+`backend_timeout` controls model HTTP calls separately from
+`validation_timeout`; the default is 900s, and overnight mode uses 1200s.
 
 ## The app (v0.6)
 
@@ -262,7 +272,8 @@ init ─► decompose (iter 1, 1 LLM call) ─► build ◄───────
   neighbors, token overlap) and fills the budget by score; over-budget files
   keep a one-line def/class stub. A `WHAT CHANGED LAST ITERATION` git diff and
   a persistent `NOTES.md` (agent `NOTE:` lines + harness observations,
-  FIFO-capped) round out the model's memory. `"brute"` restores v0.2 behavior.
+  self-reflection guidance, FIFO-capped) round out the model's memory. `"brute"`
+  restores v0.2 behavior.
 - **Held-out acceptance tests**: `9xf init --acceptance-tests` generates
   `acceptance/test_acceptance.py` from the goal at init. The agent can't write
   it and never sees its contents — only the criteria text. It gates
@@ -312,7 +323,8 @@ history — so the loop can learn from its own helpers.
 - `STOP` file anywhere in the project folder → clean shutdown (commit, log,
   exit) at the next iteration boundary. `Ctrl+C` does the same; a second
   `Ctrl+C` force-quits.
-- Iteration cap (default 50) and per-run validation timeout (default 10s).
+- Iteration cap (default 50), model-call backend timeout (default 900s), and
+  per-run validation timeout (default 10s).
 - Network is off by default for validated code: on macOS the validation
   subprocess is wrapped in `sandbox-exec` with a deny-network profile
   (best-effort — falls back to a stripped-env run if unavailable). Opt in with

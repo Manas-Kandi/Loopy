@@ -18,6 +18,7 @@ import os
 import re
 import subprocess
 import sys
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -75,6 +76,19 @@ def _chat_entry(e: dict) -> dict:
     }
 
 
+def _elapsed_label(ts: str) -> str:
+    try:
+        started = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        seconds = max(0, int((datetime.now(timezone.utc) - started).total_seconds()))
+    except (TypeError, ValueError):
+        return ""
+    if seconds < 60:
+        return f"{seconds}s"
+    return f"{seconds // 60}m {seconds % 60}s"
+
+
 def run_detail(d: Path) -> dict:
     if not (d / GOAL_FILENAME).exists():
         return {"error": f"not a 9xf run: {d}"}
@@ -94,13 +108,19 @@ def run_detail(d: Path) -> dict:
     if state.get("running") and state_iter >= latest_logged and state_subtask:
         if not any(e.get("event") == "live" and e.get("iteration") == state_iter
                    for e in rendered_entries):
+            elapsed = _elapsed_label(state.get("ts", ""))
+            summary = "in progress - waiting for the current model/tool call to finish"
+            if state_subtask.startswith("waiting for model:"):
+                summary = "model call in progress"
+                if elapsed:
+                    summary += f" for {elapsed}"
             rendered_entries.append({
                 "event": "live",
                 "iteration": state_iter,
                 "timestamp": state.get("ts", ""),
                 "mode": state_mode or "running",
                 "subtask": state_subtask,
-                "summary": "in progress — waiting for the current model/tool call to finish",
+                "summary": summary,
                 "ok": False,
                 "detail": "",
                 "errors": [],

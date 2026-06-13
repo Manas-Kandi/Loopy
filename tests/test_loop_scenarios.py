@@ -343,6 +343,10 @@ class TestEvidenceDrivenGuards(unittest.TestCase):
                     if e.get("failure_kind") == "slow_test"]
             self.assertTrue(slow, entries)
             self.assertIn("slow_test", slow[0]["errors"][0])
+            purposes = [c.get("purpose") for c in slow[0].get("model_calls", [])]
+            self.assertIn("reflection", purposes)
+            notes = (project / "NOTES.md").read_text()
+            self.assertIn("AVOID: repeating a failing implementation", notes)
         finally:
             cleanup(project)
 

@@ -240,11 +240,26 @@ textarea{resize:vertical;min-height:72px}
 .seg-switch button{flex:1;border:0;border-radius:0;background:transparent}
 .seg-switch button.on{background:var(--amber);color:#fff;font-weight:600}
 .modal .actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}
-#browser{border:1px solid var(--line2);border-radius:8px;max-height:200px;overflow-y:auto;
-  margin-top:8px;font-size:12.5px;background:var(--well)}
-#browser .bi{padding:6px 12px;cursor:pointer;display:flex;gap:8px;align-items:baseline}
-#browser .bi:hover{background:var(--panel2);color:var(--amber)}
-#browser .bi .tag{color:var(--amber2);font-size:10px}
+/* in-app folder browser (plain-browser fallback) — a mini file dialog */
+#browser{border:1px solid var(--line2);border-radius:10px;margin-top:8px;background:var(--well);
+  overflow:hidden;display:none;flex-direction:column;max-height:300px}
+.browpath{flex:none;padding:8px 12px;border-bottom:1px solid var(--line);
+  font:11.5px var(--mono);color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.browlist{flex:1;overflow-y:auto;padding:4px}
+#browser .bi{padding:7px 10px;cursor:pointer;display:flex;gap:9px;align-items:center;
+  border-radius:7px;font-size:12.5px;color:var(--txt)}
+#browser .bi:hover{background:var(--panel2)}
+#browser .bi.muted{color:var(--faint);cursor:default}
+#browser .bi.muted:hover{background:transparent}
+#browser .bi .ic{flex:none;width:12px;color:var(--faint);text-align:center}
+#browser .bi .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#browser .bi .tag{flex:none;color:var(--amber2);font-size:10px;border:1px solid var(--amber-dim);
+  border-radius:99px;padding:0 7px}
+.browfoot{flex:none;padding:8px 10px;border-top:1px solid var(--line);display:flex;
+  align-items:center;gap:10px}
+.browfoot .sel{flex:1;min-width:0;font:11px var(--mono);color:var(--faint);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.browfoot button{flex:none;padding:5px 13px;font-size:11.5px}
 .formerr{color:var(--red);font-size:12px;margin-top:8px;min-height:14px}
 .hint{color:var(--faint);font-size:11.5px;margin-top:6px}
 .kbd{font:10.5px var(--mono);color:var(--faint);border:1px solid var(--line2);
@@ -654,20 +669,27 @@ async function loadModels(){
   }catch(e){}
 }
 async function pickFolder(){
-  if (window.ninexf && window.ninexf.pickFolder){     /* electron: native dialog */
-    const p = await window.ninexf.pickFolder();
-    if (p) $('fDir').value = p;
-    return;
+  if (window.ninexf && window.ninexf.pickFolder){     /* electron: native macOS dialog */
+    try{ const p = await window.ninexf.pickFolder(); if (p) $('fDir').value = p; return; }
+    catch(e){ /* native bridge failed — fall through to the in-app browser */ }
   }
   browseTo($('fDir').value || '');                    /* browser: server-side picker */
 }
 async function browseTo(path){
   let r; try{ r = await (await fetch('/api/browse?path='+encodeURIComponent(path))).json(); }catch(e){ return; }
   $('fDir').value = r.path;
-  const b = $('browser'); b.style.display = 'block';
-  b.innerHTML = (r.parent?`<div class="bi" onclick="browseTo('${esc(r.parent)}')">⬑ ..</div>`:'') +
-    r.dirs.map(d=>`<div class="bi" onclick="browseTo('${esc(d.path)}')">▸ ${esc(d.name)} ${d.is_run?'<span class="tag">9XF RUN</span>':''}</div>`).join('') +
-    `<div class="bi" onclick="$('browser').style.display='none'"><b style="color:var(--amber)">✓ use this folder</b>&nbsp;— or append a new subfolder name above</div>`;
+  const rows = (r.parent
+      ? `<div class="bi" onclick="browseTo('${esc(r.parent)}')"><span class="ic">↑</span><span class="nm">..</span></div>`
+      : '') +
+    (r.dirs.length
+      ? r.dirs.map(d=>`<div class="bi" onclick="browseTo('${esc(d.path)}')"><span class="ic">▸</span><span class="nm">${esc(d.name)}</span>${d.is_run?'<span class="tag">9xf run</span>':''}</div>`).join('')
+      : '<div class="bi muted"><span class="ic"></span><span class="nm">no subfolders here</span></div>');
+  const b = $('browser'); b.style.display = 'flex';
+  b.innerHTML =
+    `<div class="browpath" title="${esc(r.path)}">${esc(r.path)}${r.is_run?'  ·  existing 9xf run':''}</div>` +
+    `<div class="browlist">${rows}</div>` +
+    `<div class="browfoot"><span class="sel">use this folder${r.is_run?' (continue run)':''}</span>` +
+    `<button class="primary" onclick="$('browser').style.display='none'">Use folder</button></div>`;
 }
 async function startSession(){
   const payload = {

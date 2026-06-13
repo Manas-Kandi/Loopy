@@ -15,6 +15,7 @@ from ninexf.models import DEFAULT_MODEL
 DEFAULTS = {
     "model": DEFAULT_MODEL,
     "endpoint": "http://localhost:11434",
+    "backend_timeout": 900,
     "max_iterations": 50,
     "delay_seconds": 5,
     "validation_timeout": 10,
@@ -36,6 +37,9 @@ DEFAULTS = {
     "notes_enabled": True,
     "notes_max_lines": 40,
     "max_notes_per_iteration": 2,
+    "reflection_enabled": True,
+    "reflection_every": 2,
+    "reflection_max_notes": 3,
     "acceptance_tests": False,
     "critic_enabled": False,
     "critic_max_revisions": 1,
@@ -61,6 +65,7 @@ PRESETS = {
     "overnight": {
         "max_iterations": 1000,
         "delay_seconds": 0,
+        "backend_timeout": 1200,
         "max_hours": 8,
         "review_every": 4,
         "validation_timeout": 20,
@@ -71,6 +76,9 @@ PRESETS = {
         "max_explores_per_run": 4,
         "repair_attempts": 2,
         "format_retry_attempts": 2,
+        "reflection_enabled": True,
+        "reflection_every": 1,
+        "reflection_max_notes": 4,
         "max_task_failures": 4,
         "max_verify_attempts": 5,
         "acceptance_tests": True,
@@ -83,6 +91,7 @@ PRESETS = {
 class Config:
     model: str = DEFAULTS["model"]
     endpoint: str = DEFAULTS["endpoint"]
+    backend_timeout: float = DEFAULTS["backend_timeout"]
     max_iterations: int = DEFAULTS["max_iterations"]
     delay_seconds: float = DEFAULTS["delay_seconds"]
     validation_timeout: float = DEFAULTS["validation_timeout"]
@@ -104,6 +113,9 @@ class Config:
     notes_enabled: bool = DEFAULTS["notes_enabled"]
     notes_max_lines: int = DEFAULTS["notes_max_lines"]
     max_notes_per_iteration: int = DEFAULTS["max_notes_per_iteration"]
+    reflection_enabled: bool = DEFAULTS["reflection_enabled"]
+    reflection_every: int = DEFAULTS["reflection_every"]
+    reflection_max_notes: int = DEFAULTS["reflection_max_notes"]
     acceptance_tests: bool = DEFAULTS["acceptance_tests"]
     critic_enabled: bool = DEFAULTS["critic_enabled"]
     critic_max_revisions: int = DEFAULTS["critic_max_revisions"]
