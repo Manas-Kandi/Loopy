@@ -1,11 +1,11 @@
-"""The `9xf app` page — design direction: NIGHT CONSOLE.
+"""The `9xf app` page — design direction: quiet, warm, minimal.
 
-A flight-data-recorder for a machine that works while you sleep. Industrial
-instrument-panel aesthetic: phosphor amber on near-black ink, all-monospace,
-hairline rules, draftsman corner ticks, segmented (never smooth) progress, a
-live UTC clock, and the signature element — the PULSE strip, a seismograph of
-every iteration (amber tick up = validated, red drop = failed, blinking cursor
-= alive right now).
+A calm dark workspace for a machine that works while you sleep. Warm near-black
+neutrals with a single muted terracotta accent (the Claude palette), system
+sans-serif for prose, monospace reserved for numbers/hashes/diffs, soft rounded
+surfaces instead of rules and boxes, and one signature element — the PULSE
+strip, a seismograph of every iteration (green tick up = validated, red drop =
+failed, blinking cursor = alive right now).
 
 Constraints honored: one self-contained file, no external fonts/assets (fully
 offline), prefers-reduced-motion respected, :focus-visible styles, and color is
@@ -15,206 +15,204 @@ never the only signal (every state also carries a glyph or word).
 APP_PAGE = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>9XF · NIGHT CONSOLE</title>
+<title>9xf</title>
 <style>
 :root{
-  --ink:#07090d; --panel:#0b0e14; --panel2:#0d1118; --well:#05070a;
-  --line:#1a212c; --line2:#2a3442;
-  --amber:#ffb000; --amber2:#cf8e00; --amber-dim:#6e5200;
-  --green:#3ddc7a; --red:#ff5257; --blue:#6ab0ff;
-  --txt:#d8dfe9; --dim:#8a97a8; --faint:#525e6e;
+  --ink:#161513; --panel:#1e1d1a; --panel2:#262420; --well:#110f0e;
+  --line:#2a2825; --line2:#3a3733;
+  --amber:#d97757; --amber2:#b05f43; --amber-dim:#5c3527;
+  --green:#97b58c; --red:#cd6f63; --blue:#9db4cd;
+  --txt:#e8e6e1; --dim:#9b9892; --faint:#6e6b64;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
 }
 *{box-sizing:border-box;margin:0}
 html,body{height:100%}
 body{
   background:var(--ink);
-  color:var(--txt);font:13px/1.55 var(--mono);display:flex;overflow:hidden;
+  color:var(--txt);font:13.5px/1.6 var(--sans);display:flex;overflow:hidden;
   font-variant-numeric:tabular-nums;
+  -webkit-font-smoothing:antialiased;
 }
-::selection{background:var(--amber);color:#000}
+::selection{background:var(--amber);color:#fff}
 ::-webkit-scrollbar{width:8px;height:8px}
-::-webkit-scrollbar-thumb{background:var(--line2)}
+::-webkit-scrollbar-thumb{background:var(--line2);border-radius:4px}
 ::-webkit-scrollbar-track{background:transparent}
 :focus-visible{outline:1px solid var(--amber);outline-offset:2px}
 
 /* ---------- primitives ---------- */
-.lbl{font-size:10px;letter-spacing:.1em;color:var(--faint);text-transform:uppercase}
+.lbl{font-size:11px;color:var(--faint)}
 button{
-  font:inherit;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
-  cursor:pointer;color:var(--txt);background:var(--panel2);
-  border:1px solid var(--line2);border-radius:4px;padding:7px 14px;
+  font:inherit;font-size:12.5px;cursor:pointer;color:var(--txt);
+  background:transparent;border:1px solid var(--line2);border-radius:8px;
+  padding:6px 14px;transition:background .12s,border-color .12s,color .12s;
 }
-button:hover{border-color:var(--amber2);color:var(--amber)}
-button.primary{background:var(--amber);border-color:var(--amber);color:#000;font-weight:700}
-button.primary:hover{background:#ffc23d;color:#000}
-button.danger:hover{border-color:var(--red);color:var(--red)}
+button:hover{background:var(--panel2);border-color:var(--faint)}
+button:active{transform:translateY(1px)}
+button:disabled{opacity:.45;cursor:default;transform:none}
+button.primary{background:var(--amber);border-color:var(--amber);color:#fff;font-weight:600}
+button.primary:hover{background:#e08763;border-color:#e08763;color:#fff}
+button.danger:hover{border-color:var(--red);color:var(--red);background:transparent}
 input,textarea,select{
-  font:inherit;font-size:12.5px;background:var(--well);color:var(--txt);
-  border:1px solid var(--line2);border-radius:4px;padding:8px 10px;width:100%;
+  font:inherit;font-size:13px;background:var(--well);color:var(--txt);
+  border:1px solid var(--line2);border-radius:8px;padding:8px 12px;width:100%;
 }
 input:focus,textarea:focus,select:focus{outline:none;border-color:var(--amber2)}
 textarea{resize:vertical;min-height:72px}
-.frame{position:relative;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+.frame{position:relative;border:1px solid var(--line);border-radius:14px;background:var(--panel)}
 
 @keyframes blink{0%,55%{opacity:1}56%,100%{opacity:0}}
 .cursor{animation:blink 1.1s steps(1) infinite}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
 /* ---------- sidebar ---------- */
-#side{width:280px;min-width:280px;background:var(--panel);border-right:1px solid var(--line);
+#side{width:272px;min-width:272px;background:var(--well);
   display:flex;flex-direction:column}
-#brand{padding:18px 16px 14px;border-bottom:1px solid var(--line)}
-#brand .word{font-size:19px;font-weight:700;letter-spacing:.08em;color:var(--txt)}
+#brand{padding:20px 18px 8px}
+#brand .word{font-size:16px;font-weight:600;color:var(--txt)}
 #brand .word b{color:var(--amber)}
-#brand .tag{font-size:9.5px;letter-spacing:.14em;color:var(--faint);margin-top:3px}
-#newBtn{margin:14px;display:block;width:calc(100% - 28px)}
-.raillabel{padding:4px 16px 8px;font-size:10px;letter-spacing:.1em;color:var(--faint)}
-#runlist{flex:1;overflow-y:auto}
-.runitem{display:flex;gap:10px;align-items:flex-start;padding:10px 14px;cursor:pointer;
-  border-left:2px solid transparent}
-.runitem:hover{background:var(--panel2)}
-.runitem.active{background:var(--panel2);border-left-color:var(--amber)}
-.led{width:8px;height:8px;margin-top:5px;background:var(--faint);flex:none}
-.led.running{background:var(--green);box-shadow:0 0 5px rgba(61,220,122,.45)}
-.led.finished{background:var(--amber);box-shadow:0 0 4px rgba(255,176,0,.35)}
+#brand .tag{font-size:11px;color:var(--faint);margin-top:1px}
+#newBtn{margin:14px 14px 6px;display:block;width:calc(100% - 28px)}
+.raillabel{padding:12px 18px 4px;font-size:11px;color:var(--faint)}
+#runlist{flex:1;overflow-y:auto;padding:0 8px}
+.runitem{display:flex;gap:10px;align-items:flex-start;padding:8px 10px;cursor:pointer;
+  border-radius:10px;margin-bottom:1px}
+.runitem:hover{background:var(--panel)}
+.runitem.active{background:var(--panel2)}
+.led{width:7px;height:7px;margin-top:6px;border-radius:50%;background:var(--faint);flex:none}
+.led.running{background:var(--green)}
+.led.finished{background:var(--amber)}
 .led.failed{background:var(--red)}
 .led.stale{background:var(--amber2)}
-.runitem .g{font-size:12px;color:var(--txt);overflow:hidden;text-overflow:ellipsis;
-  white-space:nowrap;max-width:212px}
-.runitem .s{font-size:10px;letter-spacing:.08em;color:var(--faint);margin-top:3px;text-transform:uppercase}
-#railfoot{border-top:1px solid var(--line);padding:10px 16px;display:flex;
-  justify-content:space-between;font-size:10px;letter-spacing:.12em;color:var(--faint)}
+.runitem .g{font-size:13px;color:var(--txt);overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;max-width:206px}
+.runitem .s{font-size:11px;color:var(--faint);margin-top:1px}
+#railfoot{padding:10px 18px;display:flex;
+  justify-content:space-between;font:10.5px var(--mono);color:var(--faint)}
 #clock{color:var(--dim)}
 
 /* ---------- header: readouts + pulse ---------- */
 #main{flex:1;display:flex;flex-direction:column;min-width:0}
-#top{border-bottom:1px solid var(--line);background:var(--panel)}
-#readouts{display:flex;align-items:stretch}
-.cell{padding:12px 16px;border-right:1px solid var(--line);min-width:0}
-.cell .val{margin-top:4px;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#top{border-bottom:1px solid var(--line)}
+#readouts{display:flex;align-items:center;gap:28px;padding:14px 22px 10px}
+.cell{min-width:0}
+.cell .val{margin-top:1px;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cell.goal{flex:1}
-.cell.iter .val{font-size:24px;line-height:1.1;color:var(--amber);font-weight:700;letter-spacing:.04em}
+.cell.goal .val{font-size:14px;font-weight:500}
+.cell.iter .val{font:600 16px/1.3 var(--mono);color:var(--txt)}
 .cell.iter .cap{color:var(--faint);font-size:12px;font-weight:400}
-.segs{display:flex;gap:3px;margin-top:7px;flex-wrap:wrap;max-width:220px}
-.seg{width:9px;height:9px;background:var(--line2)}
-.seg.done{background:var(--amber)}
-.seg.cur{background:var(--amber-dim);box-shadow:inset 0 0 0 1px var(--amber)}
+.segs{display:flex;gap:3px;margin-top:5px;flex-wrap:wrap;max-width:220px}
+.seg{width:8px;height:8px;border-radius:2px;background:var(--line2)}
+.seg.done{background:var(--green)}
+.seg.cur{background:var(--amber)}
 .seg.def{background:var(--red);opacity:.55}
-.statusword{font-size:12.5px;letter-spacing:.14em;text-transform:uppercase}
+.statusword{font-size:13px}
 .statusword.running{color:var(--green)}
 .statusword.finished{color:var(--amber)}
 .statusword.failed{color:var(--red)}
 .statusword.stale{color:var(--amber2)}
 .statusword.stopped,.statusword.never{color:var(--dim)}
-.cell.actions{display:flex;align-items:center;gap:8px;border-right:0}
-#pulsewrap{padding:6px 16px 9px;border-top:1px solid var(--line);background:var(--well)}
+.cell.actions{display:flex;align-items:center;gap:8px}
+#pulsewrap{padding:0 22px 10px}
 #pulsewrap .lbl{display:block;margin-bottom:2px}
 #pulse{display:block;width:100%}
 
 /* ---------- panes ---------- */
 #panes{flex:1;display:flex;min-height:0}
-.panehead{padding:9px 16px;border-bottom:1px solid var(--line);font-size:9.5px;
-  letter-spacing:.18em;color:var(--faint);text-transform:uppercase;display:flex;
-  justify-content:space-between;align-items:center;gap:8px;background:var(--panel)}
+.panehead{padding:12px 22px 4px;font-size:11px;color:var(--faint);display:flex;
+  justify-content:space-between;align-items:center;gap:8px}
 #chatwrap{flex:1.08;display:flex;flex-direction:column;min-width:0}
-#chat{flex:1;overflow-y:auto;padding:18px 22px;scroll-behavior:smooth}
-#statusbar{display:none;border-top:1px solid var(--line);background:var(--panel);
-  padding:9px 16px;font-size:11.5px;color:var(--dim);align-items:center;gap:10px}
+#chat{flex:1;overflow-y:auto;padding:12px 22px 18px;scroll-behavior:smooth}
+#statusbar{display:none;border-top:1px solid var(--line);
+  padding:9px 22px;font-size:12.5px;color:var(--dim);align-items:center;gap:10px}
 #statusbar .cursor{color:var(--amber);font-weight:700}
-#statusbar b{color:var(--txt);letter-spacing:.1em}
+#statusbar b{color:var(--txt)}
 
 /* ---------- transcript records ---------- */
-.rec{border:1px solid var(--line);border-left:2px solid var(--line2);
-  background:var(--panel);margin:0 auto 12px;max-width:820px}
-.rec.ok{border-left-color:var(--green)}
-.rec.bad{border-left-color:var(--red)}
-.rec.clickable{cursor:pointer}
+.rec{background:var(--panel);border-radius:12px;margin:0 auto 10px;max-width:760px;
+  padding:2px 0 0}
+.rec.clickable{cursor:pointer;transition:background .12s}
 .rec.clickable:hover{background:var(--panel2)}
-.rec.selected{border-color:var(--amber2);border-left-color:var(--amber)}
-.rechead{display:flex;align-items:center;gap:10px;padding:7px 12px;
-  border-bottom:1px solid var(--line);font-size:10px;letter-spacing:.12em;
-  text-transform:uppercase;color:var(--dim);flex-wrap:wrap}
-.recno{color:var(--amber);font-weight:700}
-.recmode{color:var(--blue)}
-.flag{padding:1px 6px;border:1px solid var(--line2);color:var(--dim);font-size:9px}
-.flag.warn{border-color:var(--amber2);color:var(--amber)}
-.flag.bad{border-color:var(--red);color:var(--red)}
-.flag.good{border-color:var(--green);color:var(--green)}
-.verdict{margin-left:auto;font-weight:700;letter-spacing:.12em}
+.rec.clickable:hover .recmeta .hash{color:var(--amber)}
+.rec.selected{box-shadow:0 0 0 1px var(--amber2)}
+.rechead{display:flex;align-items:center;gap:10px;padding:10px 16px 0;
+  font-size:11px;color:var(--dim);flex-wrap:wrap}
+.recno{font:600 11px var(--mono);color:var(--dim)}
+.recmode{color:var(--faint)}
+.flag{padding:1px 9px;border-radius:99px;background:var(--panel2);color:var(--dim);font-size:10.5px}
+.flag.warn{background:rgba(217,119,87,.13);color:var(--amber)}
+.flag.bad{background:rgba(205,111,99,.13);color:var(--red)}
+.flag.good{background:rgba(151,181,140,.13);color:var(--green)}
+.verdict{margin-left:auto;font-weight:600;font-size:11.5px}
 .verdict.ok{color:var(--green)}
 .verdict.bad{color:var(--red)}
-.recline{display:flex;gap:12px;padding:8px 12px 0}
-.recline:last-child{padding-bottom:10px}
-.recline .lbl{flex:none;width:38px;padding-top:2px}
-.recline .txt{font-size:12.5px;word-break:break-word;min-width:0}
+.recline{display:flex;gap:12px;padding:7px 16px 0}
+.recline:last-child{padding-bottom:12px}
+.recline .lbl{flex:none;width:36px;padding-top:2px;font-size:11px}
+.recline .txt{font-size:13px;word-break:break-word;min-width:0}
 .recline.plan .txt{color:var(--txt)}
 .recline.execl .txt{color:var(--dim)}
-.files{display:flex;flex-wrap:wrap;gap:6px;padding:8px 12px 0 62px}
-.file{font-size:10.5px;border:1px solid var(--line2);padding:1px 7px;color:var(--blue)}
-.errblock{margin:8px 12px 0 62px;border-left:2px solid var(--red);padding:4px 10px;
-  font-size:11px;color:var(--red);word-break:break-word;background:var(--well)}
-.recmeta{display:flex;gap:14px;padding:8px 12px 10px 62px;font-size:10px;
-  letter-spacing:.1em;color:var(--faint);text-transform:uppercase}
-.recmeta .hash{color:var(--amber2)}
+.files{display:flex;flex-wrap:wrap;gap:6px;padding:8px 16px 0 64px}
+.file{font:11px var(--mono);background:var(--panel2);border-radius:6px;padding:2px 8px;color:var(--blue)}
+.errblock{margin:8px 16px 0 64px;border-radius:8px;padding:7px 10px;
+  font:11.5px/1.5 var(--mono);color:var(--red);word-break:break-word;
+  background:rgba(205,111,99,.08)}
+.recmeta{display:flex;gap:14px;padding:8px 16px 12px 64px;font-size:11px;
+  color:var(--faint)}
+.recmeta .hash{font-family:var(--mono);color:var(--amber2)}
 
 /* harness events */
-.evt{display:flex;align-items:center;gap:12px;max-width:820px;margin:0 auto 12px;
-  color:var(--faint);font-size:10px;letter-spacing:.16em;text-transform:uppercase}
-.evt::before,.evt::after{content:"";flex:1;height:1px;background:var(--line)}
+.evt{display:flex;align-items:center;justify-content:center;gap:8px;max-width:760px;
+  margin:2px auto 12px;color:var(--faint);font-size:11.5px;text-align:center}
 .evt b{color:var(--dim)}
 .evt.finish{color:var(--amber)}
-.evt.finish::before,.evt.finish::after{background:var(--amber-dim)}
 .evt.finish b{color:var(--amber)}
 
 /* empty state */
-.empty{margin:auto;text-align:center;padding:60px 30px;max-width:560px}
-.empty .schem{font-size:11px;letter-spacing:.14em;color:var(--faint);margin-bottom:26px}
-.empty .schem b{color:var(--amber)}
-.empty h2{font-size:22px;letter-spacing:.12em;margin-bottom:14px;color:var(--txt);
-  text-transform:uppercase}
+.empty{margin:auto;text-align:center;padding:60px 30px;max-width:480px}
+.empty h2{font-size:21px;font-weight:600;margin-bottom:12px;color:var(--txt);line-height:1.3}
 .empty h2 b{color:var(--amber)}
-.empty p{color:var(--dim);font-size:12.5px;margin-bottom:28px}
+.empty p{color:var(--dim);font-size:13.5px;margin-bottom:26px}
 
 /* ---------- diff register ---------- */
 #diffpane{flex:1;border-left:1px solid var(--line);display:flex;flex-direction:column;
   min-width:0;background:var(--well)}
-#diffTitle .hash{color:var(--amber)}
-#diff{flex:1;overflow:auto;padding:14px 16px;font-size:11.5px;line-height:1.6;
+#diffTitle .hash{font-family:var(--mono);color:var(--amber)}
+#diff{flex:1;overflow:auto;padding:10px 22px 16px;font:11.5px/1.6 var(--mono);
   white-space:pre;color:var(--dim)}
 #diff .add{color:var(--green)}
 #diff .del{color:var(--red)}
 #diff .hunk{color:var(--amber2)}
-#diff .file{color:var(--blue);font-weight:700}
+#diff .file{font:inherit;background:transparent;border-radius:0;padding:0;
+  color:var(--blue);font-weight:700}
 #diff .ctx{color:var(--faint)}
 
 /* ---------- modal ---------- */
 #overlay,#copyOverlay{position:fixed;inset:0;background:rgba(2,3,5,.7);display:none;
   align-items:center;justify-content:center;z-index:10}
 #overlay.show,#copyOverlay.show{display:flex}
-.modal{width:560px;max-width:94vw;max-height:90vh;overflow-y:auto;padding:24px;border-radius:8px}
-.modal h2{font-size:13px;letter-spacing:.14em;text-transform:uppercase;
-  color:var(--amber);margin-bottom:20px}
+.modal{width:560px;max-width:94vw;max-height:90vh;overflow-y:auto;padding:26px;border-radius:14px}
+.modal h2{font-size:16px;font-weight:600;color:var(--txt);margin-bottom:18px}
 .field{margin-bottom:16px}
-.field .lbl{display:block;margin-bottom:7px}
+.field .lbl{display:block;margin-bottom:6px}
 .row{display:flex;gap:10px}.row>*{flex:1}
-.seg-switch{display:flex;border:1px solid var(--line2)}
-.seg-switch button{flex:1;border:0;background:var(--well)}
-.seg-switch button.on{background:var(--amber);color:#000;font-weight:700}
+.seg-switch{display:flex;border:1px solid var(--line2);border-radius:8px;overflow:hidden}
+.seg-switch button{flex:1;border:0;border-radius:0;background:transparent}
+.seg-switch button.on{background:var(--amber);color:#fff;font-weight:600}
 .modal .actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}
-#browser{border:1px solid var(--line2);max-height:200px;overflow-y:auto;
-  margin-top:8px;font-size:11.5px;background:var(--well)}
-#browser .bi{padding:6px 10px;cursor:pointer;display:flex;gap:8px;align-items:baseline}
+#browser{border:1px solid var(--line2);border-radius:8px;max-height:200px;overflow-y:auto;
+  margin-top:8px;font-size:12.5px;background:var(--well)}
+#browser .bi{padding:6px 12px;cursor:pointer;display:flex;gap:8px;align-items:baseline}
 #browser .bi:hover{background:var(--panel2);color:var(--amber)}
-#browser .bi .tag{color:var(--amber2);font-size:9px;letter-spacing:.12em}
-.formerr{color:var(--red);font-size:11px;margin-top:8px;min-height:14px}
-.hint{color:var(--faint);font-size:10.5px;margin-top:6px}
+#browser .bi .tag{color:var(--amber2);font-size:10px}
+.formerr{color:var(--red);font-size:12px;margin-top:8px;min-height:14px}
+.hint{color:var(--faint);font-size:11.5px;margin-top:6px}
 </style></head><body>
 
 <aside id="side">
   <div id="brand">
-    <div class="word">9<b>XF</b><span class="cursor" style="color:var(--amber)">▮</span></div>
-    <div class="tag">NIGHT CONSOLE · AUTONOMOUS LOOPS</div>
+    <div class="word">9<b>xf</b></div>
+    <div class="tag">autonomous coding loops</div>
   </div>
   <button id="newBtn" class="primary" aria-label="New session">+ New session</button>
   <div class="raillabel">Sessions</div>
@@ -246,10 +244,9 @@ textarea{resize:vertical;min-height:72px}
       <div class="panehead"><span>Transcript</span><span id="livehint"></span></div>
       <div id="chat">
         <div class="empty">
-          <div class="schem">[ PLAN ] → [ WRITE ] → [ VALIDATE ] → [ <b>REPAIR</b> ] → [ COMMIT ] ⟲</div>
-          <h2>Night shift<br>for your <b>code</b></h2>
-          <p>Set a goal. Pick a folder. A local model works the loop —
-          verified, committed, checkpointed — while you sleep.</p>
+          <h2>The night shift for your <b>code</b></h2>
+          <p>Set a goal and pick a folder. A local model plans, writes,
+          tests, and commits — on its own, for as long as you let it.</p>
           <button class="primary" onclick="openNew()">Start a session</button>
         </div>
       </div>
@@ -288,7 +285,7 @@ textarea{resize:vertical;min-height:72px}
   <div class="formerr" id="fErr" role="alert"></div>
   <div class="actions">
     <button onclick="closeNew()">Cancel</button>
-        <button class="primary" onclick="startSession()">Start</button>
+        <button id="startBtn" class="primary" onclick="startSession()">Start</button>
   </div>
 </div></div>
 
@@ -339,14 +336,14 @@ function selectRun(dir){ current = dir; pinnedCommit = null; lastRender = ''; la
 function pulseSvg(entries, running){
   const iters = entries.filter(e => e.event === 'iteration').slice(-140);
   const step = 8, w = Math.max(600, iters.length*step + 26), h = 30, base = 19;
-  const parts = [`<line x1="0" y1="${base}" x2="${w}" y2="${base}" stroke="#1a212c"/>`];
+  const parts = [`<line x1="0" y1="${base}" x2="${w}" y2="${base}" stroke="#2a2825"/>`];
   iters.forEach((e, i) => {
     const x = 8 + i*step;
     parts.push(e.ok
-      ? `<line x1="${x}" y1="${base}" x2="${x}" y2="5" stroke="#ffb000" stroke-width="2"><title>iter ${e.iteration}: validated</title></line>`
-      : `<line x1="${x}" y1="${base}" x2="${x}" y2="${h-2}" stroke="#ff5257" stroke-width="2"><title>iter ${e.iteration}: failed</title></line>`);
+      ? `<line x1="${x}" y1="${base}" x2="${x}" y2="5" stroke="#97b58c" stroke-width="2"><title>iter ${e.iteration}: validated</title></line>`
+      : `<line x1="${x}" y1="${base}" x2="${x}" y2="${h-2}" stroke="#cd6f63" stroke-width="2"><title>iter ${e.iteration}: failed</title></line>`);
   });
-  if (running) parts.push(`<rect class="cursor" x="${8 + iters.length*step}" y="8" width="5" height="11" fill="#ffb000"/>`);
+  if (running) parts.push(`<rect class="cursor" x="${8 + iters.length*step}" y="8" width="5" height="11" fill="#d97757"/>`);
   return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="xMinYMid meet"
     role="img" aria-label="iteration pulse: ${iters.filter(e=>e.ok).length} passed, ${iters.filter(e=>!e.ok).length} failed">${parts.join('')}</svg>`;
 }
@@ -384,7 +381,7 @@ function entryHtml(e){
         <span class="recno">${pad3(e.iteration)}</span>
         <span class="recmode">${esc(e.mode)}</span>
         <span class="flag warn">live</span>
-        <span class="verdict ok"><span class="cursor">▮</span> RUNNING</span>
+        <span class="verdict ok"><span class="cursor">▮</span> Running</span>
       </div>
       <div class="recline plan"><span class="lbl">Plan</span><span class="txt">${esc(e.subtask)}</span></div>
       <div class="recline execl"><span class="lbl">Exec</span><span class="txt">${esc(e.summary)}</span></div>
@@ -399,7 +396,7 @@ function entryHtml(e){
         <span class="recno">${pad3(e.iteration)}</span>
         <span class="recmode">${esc(e.mode)}</span>
         ${flags(e)}
-        <span class="verdict ${e.ok?'ok':'bad'}">${e.ok?'✓ PASS':'✗ FAIL'}</span>
+        <span class="verdict ${e.ok?'ok':'bad'}">${e.ok?'✓ Passed':'✗ Failed'}</span>
       </div>
       <div class="recline plan"><span class="lbl">Plan</span><span class="txt">${esc(e.subtask)}</span></div>
       <div class="recline execl"><span class="lbl">Exec</span><span class="txt">${esc(e.summary||'(no summary)')}</span></div>
@@ -436,7 +433,7 @@ async function tickRun(){
   const sb = $('statusbar');
   if (running){
     sb.style.display = 'flex';
-    sb.innerHTML = `<span class="cursor">▮</span><span><b>${esc((r.mode||'…').toUpperCase())}</b> — iter ${r.iteration}/${r.cap}${r.live_subtask?` — ${esc(r.live_subtask)}`:''}${r.stop_present?' — stopping at boundary':''}</span>`;
+    sb.innerHTML = `<span class="cursor">▮</span><span><b>${esc(r.mode||'…')}</b> — iter ${r.iteration}/${r.cap}${r.live_subtask?` — ${esc(r.live_subtask)}`:''}${r.stop_present?' — stopping at boundary':''}</span>`;
     $('livehint').textContent = 'live · polling 2s';
   } else { sb.style.display = 'none'; $('livehint').textContent = ''; }
 
@@ -472,7 +469,7 @@ async function loadDiff(commit, pin){
   if (commit === lastDiffCommit && !pin) return;
   lastDiffCommit = commit;
   $('diffTitle').innerHTML = `Diff register · <span class="hash">${esc(commit)}</span>`;
-  $('diffPin').innerHTML = pin ? `<button onclick="unpin()" style="padding:2px 8px;font-size:9px">⟲ follow latest</button>` : '';
+  $('diffPin').innerHTML = pin ? `<button onclick="unpin()" style="padding:2px 10px;font-size:11px">follow latest</button>` : '';
   let r; try{ r = await (await fetch(`/api/diff?dir=${encodeURIComponent(current)}&commit=${commit}`)).json(); }catch(e){ return; }
   $('diff').innerHTML = r.error ? `<span class="del">${esc(r.error)}</span>` : colorize(r.diff);
 }
@@ -480,7 +477,9 @@ function unpin(){ pinnedCommit = null; lastRender = ''; $('diffPin').innerHTML =
 
 /* ---------- controls ---------- */
 $('stopBtn').onclick = async () => {
-  await fetch('/api/stop', {method:'POST', body: JSON.stringify({dir: current})}); tickRun();
+  const b = $('stopBtn'); b.disabled = true; b.textContent = 'Stopping…';
+  await fetch('/api/stop', {method:'POST', body: JSON.stringify({dir: current})});
+  b.disabled = false; b.textContent = 'Stop'; tickRun();
 };
 $('resumeBtn').onclick = async () => {
   const r = await (await fetch('/api/start', {method:'POST', body: JSON.stringify({dir: current})})).json();
@@ -545,12 +544,14 @@ async function startSession(){
     iterations: $('fIters').value ? parseInt($('fIters').value) : null,
     hours: $('fHours').value ? parseFloat($('fHours').value) : null,
   };
-  if (!payload.dir){ $('fErr').textContent = 'ERR — pick a folder first'; return; }
-  if (!payload.goal){ $('fErr').textContent = 'ERR — write a goal; one sentence is enough'; return; }
-  $('fErr').textContent = 'igniting…';
+  if (!payload.dir){ $('fErr').textContent = 'Pick a folder first'; return; }
+  if (!payload.goal){ $('fErr').textContent = 'Write a goal — one sentence is enough'; return; }
+  const btn = $('startBtn');
+  btn.disabled = true; btn.textContent = 'Starting…'; $('fErr').textContent = '';
   let r; try{ r = await (await fetch('/api/start', {method:'POST', body: JSON.stringify(payload)})).json(); }
-  catch(e){ $('fErr').textContent = 'ERR — server unreachable'; return; }
-  if (r.error){ $('fErr').textContent = 'ERR — ' + r.error; return; }
+  catch(e){ $('fErr').textContent = 'Server unreachable'; btn.disabled=false; btn.textContent='Start'; return; }
+  if (r.error){ $('fErr').textContent = r.error; btn.disabled=false; btn.textContent='Start'; return; }
+  btn.disabled = false; btn.textContent = 'Start';
   closeNew(); selectRun(r.dir);
 }
 
