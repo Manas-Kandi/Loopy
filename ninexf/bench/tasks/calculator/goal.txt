@@ -1,0 +1,9 @@
+Implement an arithmetic module at src/calculator.py with four functions:
+
+  add(a, b)       -> a + b
+  subtract(a, b)  -> a - b
+  multiply(a, b)  -> a * b
+  divide(a, b)    -> a / b   (float division)
+
+divide must raise ValueError when b == 0 (do not let a ZeroDivisionError
+propagate). All functions take two numbers and return a number.

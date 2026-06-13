@@ -1,0 +1,14 @@
+{
+  "name": "local-quick",
+  "description": "Fast real-model sanity check: the default 7B model on two easy tasks, baseline preset, tiny budget. Proves the live backend + oracle path without an API key or an overnight wait.",
+  "seeds": 1,
+  "tasks": ["greeting", "fizzbuzz"],
+  "cells": [
+    {
+      "label": "7b-baseline",
+      "model": "ollama/qwen2.5-coder:7b",
+      "preset": "baseline",
+      "overrides": {"max_iterations": 12, "delay_seconds": 0}
+    }
+  ]
+}

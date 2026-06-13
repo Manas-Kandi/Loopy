@@ -10,153 +10,35 @@ v0.3 additions: goal decomposition into a harness-managed task list
 (TASKS.md + ACCEPTANCE.md), per-task targeting and completion checks, task
 deferral after repeated failures, and a verify_done mode that lets a run
 FINISH ("goal complete") instead of only hitting the iteration cap.
+
+This module is the orchestrator. The per-concern behavior lives in mixins
+(lifecycle, planning, recovery, decomposition, verification, execution,
+reflection) that LoopRunner combines by inheritance — see loop_common.py for the
+shared surface. The split is structural only; behavior is unchanged.
 """
 
 from __future__ import annotations
 
-import signal
-import time
-import re
-from pathlib import Path
-
-from dataclasses import dataclass, field
-
-from ninexf import GOAL_FILENAME, STOP_FILENAME
-from ninexf.backends import Backend, BackendError, make_backend
-from ninexf.candidates import (
-    CANDIDATE_TEMPERATURES, CandidateResult, best_of_n_active,
-    parse_critic_output, pick_winner,
-)
-from ninexf.config import Config
-from ninexf.contract import contract_for_prompt, save_contract
-from ninexf.context import (
-    append_notes, build_snapshot, changes_since_last, history_for_context,
-    notes_for_prompt, snapshot_codebase,
-)
-from ninexf.explore import count_explores, should_explore
-from ninexf.fitness import best_state, final_state, fitness_of
-from ninexf.gitops import (
-    checkout_branch, commit_all, create_branch, current_branch, has_changes,
-    rename_branch, restore_paths, staged_diff,
-)
-from ninexf.looplog import LogEntry, append_entry, last_iteration_number, now_iso, read_entries
-from ninexf.parser import parse_executor_output
-from ninexf.parser import ParsedOutput
-from ninexf.prompts import (
-    CHANGES_SECTION, CRITIC_SYSTEM, CRITIC_USER, DECOMPOSE_RETRY_NOTE,
-    DECOMPOSE_SYSTEM, DECOMPOSE_USER, DIAGNOSIS_SYSTEM, DIAGNOSIS_USER,
-    EXECUTOR_SYSTEM, EXECUTOR_USER, EXPLORE_NUDGE_A, EXPLORE_NUDGE_B,
-    FORMAT_RETRY_NOTE,
-    MODE_BUILD, MODE_FIX, MODE_REVIEW, NO_TESTS_NOTE, NOTES_SECTION,
-    CONTRACT_SECTION, PLANNER_SYSTEM, PLANNER_USER, REFLECTION_SYSTEM,
-    REFLECTION_USER, REPAIR_NOTE, REVISE_NOTE, STUCK_NUDGE,
-    TASK_ELIGIBILITY_NUDGE,
-    TASK_CHECK_SYSTEM, TASK_CHECK_USER, TASKS_SECTION,
-    VERIFY_DONE_SYSTEM, VERIFY_DONE_USER,
-)
-from ninexf.registry import append_activity, read_state, write_state
-from ninexf.sandbox import WRITABLE_DIRS, ContainmentViolation, safe_write
-from ninexf.stuck import detect_signals
-from ninexf.tasks import (
-    STATUS_DEFERRED, STATUS_DONE, STATUS_IN_PROGRESS, Task, TaskList,
-    criteria_for_prompt, load_criteria, load_tasks, mark_status,
-    parse_decomposition, parse_task_ref, parse_task_ref_num, parse_verify_output,
-    sanitize_decomposition, save_criteria, save_tasks, strip_task_ref,
-    tasks_for_prompt, tasks_path, append_tasks,
-)
-from ninexf.tools import run_tool, tools_for_prompt
-from ninexf.validate import run_acceptance, validate
-
-MAX_CONSECUTIVE_BACKEND_FAILURES = 3
-MAX_REVERTS_TO_SAME_COMMIT = 2
-CRITIC_DIFF_CHARS = 6000
-REPAIR_FILES_CHARS = 12000  # how much of the broken files the repair prompt shows
-REPAIR_CONTEXT_DIRS = {"src", "tests", "tools"}
-VALIDATION_TOOL_NAMES = {"unittest"}
-REFLECTION_LINE_RE = re.compile(r"^(LEARN|AVOID|TRY):\s*(?P<text>.+?)\s*$", re.I)
+from ninexf.loop_common import *  # noqa: F401,F403 - shared surface for the orchestrator
+from ninexf.loop_common import _validation_tool_notice  # not pulled by `import *`
+from ninexf.loop_decompose import DecomposeMixin
+from ninexf.loop_execution import ExecutionMixin
+from ninexf.loop_lifecycle import LifecycleMixin
+from ninexf.loop_planning import PlanningMixin
+from ninexf.loop_recovery import RecoveryMixin
+from ninexf.loop_reflection import ReflectionMixin
+from ninexf.loop_verify import VerifyMixin
 
 
-def _add_repair_path(project_dir: Path, rels: list[str], path: Path) -> None:
-    try:
-        rel = path.resolve().relative_to(project_dir.resolve())
-    except (OSError, ValueError):
-        try:
-            rel = path.relative_to(project_dir)
-        except ValueError:
-            return
-    if not rel.parts or rel.parts[0] not in REPAIR_CONTEXT_DIRS:
-        return
-    candidate = project_dir / rel
-    if not candidate.is_file():
-        return
-    rendered = str(rel)
-    if rendered not in rels:
-        rels.append(rendered)
-
-
-def _repair_context_paths(project_dir: Path, outcome: ExecOutcome) -> list[str]:
-    """Files to show in repair prompts: written files plus traceback paths."""
-    rels: list[str] = []
-    for path in outcome.written:
-        _add_repair_path(project_dir, rels, path)
-    evidence = "\n".join([*outcome.errors, outcome.error_excerpt])
-    for quoted in re.findall(r'File "([^"]+)"', evidence):
-        path = Path(quoted)
-        _add_repair_path(project_dir, rels, path if path.is_absolute() else project_dir / path)
-    for token in re.findall(r"(?<![\w./-])((?:src|tests|tools)/[A-Za-z0-9_.\-/]+)", evidence):
-        _add_repair_path(project_dir, rels, project_dir / token.rstrip(".,:;)]}'\""))
-    return rels
-
-
-def _repair_file_dump(project_dir: Path, outcome: ExecOutcome, max_chars: int) -> str:
-    blocks = []
-    for rel in _repair_context_paths(project_dir, outcome):
-        p = project_dir / rel
-        try:
-            body = p.read_text(errors="replace")
-        except OSError as e:
-            body = f"(unreadable: {e})"
-        blocks.append(f"--- {rel} ---\n{body}")
-    if not blocks and outcome.parsed.files:
-        blocks = [f"--- {path} ---\n{body}" for path, body in outcome.parsed.files.items()]
-    return ("\n".join(blocks) or "(no parseable FILE blocks in the previous output)")[:max_chars]
-
-
-def _validation_tool_notice(name: str, args: str) -> str:
-    if name in VALIDATION_TOOL_NAMES:
-        return (
-            "ignored: unittest discovery is run automatically by harness validation; "
-            "RUN_TOOL only executes existing helper scripts in tools/"
-        )
-    return ""
-
-
-def _fatal_parse_problems(parsed: ParsedOutput) -> list[str]:
-    """Problems that make an executor reply unusable."""
-    return [p for p in parsed.problems if p.startswith("no FILE blocks")]
-
-
-def _parse_warnings(parsed: ParsedOutput) -> list[str]:
-    """Non-fatal formatting problems worth logging without rejecting good code."""
-    return [p for p in parsed.problems if p not in _fatal_parse_problems(parsed)]
-
-
-@dataclass
-class ExecOutcome:
-    """One executor attempt: parsed output, written files, validation result."""
-    parsed: ParsedOutput
-    written: list[Path] = field(default_factory=list)
-    errors: list[str] = field(default_factory=list)
-    validation_passed: bool = False
-    validation_detail: str = ""
-    tests_ran: int = 0
-    failure_kind: str = ""
-    error_signature: str = ""
-    error_excerpt: str = ""
-    parse_warnings: list[str] = field(default_factory=list)
-
-
-class LoopRunner:
+class LoopRunner(
+    LifecycleMixin,
+    PlanningMixin,
+    DecomposeMixin,
+    RecoveryMixin,
+    VerifyMixin,
+    ExecutionMixin,
+    ReflectionMixin,
+):
     def __init__(self, project_dir: Path, config: Config):
         self.project_dir = project_dir
         self.config = config
@@ -165,839 +47,10 @@ class LoopRunner:
         self._interrupted = False
         self._finished = False  # set when verify_done declares the goal complete
         self._model_calls: list[dict] = []
-
-    def _reset_model_calls(self) -> None:
-        self._model_calls = []
-
-    def _take_model_calls(self) -> list[dict]:
-        calls = self._model_calls
-        self._model_calls = []
-        return calls
-
-    def _complete(
-        self,
-        purpose: str,
-        system: str,
-        user: str,
-        temperature: float | None = None,
-    ) -> str:
-        """Model-call wrapper that records backend cost and failure evidence."""
-        started = time.perf_counter()
-        record = {
-            "purpose": purpose,
-            "temperature": temperature,
-            "prompt_chars": len(system) + len(user),
-            "response_chars": 0,
-            "latency_s": 0.0,
-            "ok": False,
-            "error": "",
-        }
-        try:
-            state = read_state(self.project_dir)
-            write_state(
-                self.project_dir,
-                running=True,
-                iteration=int(state.get("iteration", 0) or 0),
-                mode=state.get("mode", "model") or "model",
-                subtask=(
-                    f"waiting for model: {purpose} "
-                    f"(timeout {self.config.backend_timeout:g}s)"
-                ),
-                ts=now_iso(),
-            )
-        except Exception:
-            pass
-        try:
-            response = self.backend.complete(system, user, temperature=temperature)
-            record["response_chars"] = len(response)
-            record["ok"] = True
-            return response
-        except BackendError as e:
-            record["error"] = str(e)[:500]
-            raise
-        finally:
-            record["latency_s"] = round(time.perf_counter() - started, 3)
-            self._model_calls.append(record)
-
-    # -- shutdown plumbing ----------------------------------------------------
-
-    def _install_sigint(self):
-        def handler(signum, frame):
-            if self._interrupted:  # second Ctrl+C: give up politely
-                raise KeyboardInterrupt
-            self._interrupted = True
-            print("\n[9xf] Ctrl+C received — finishing this iteration, then shutting down cleanly.")
-
-        signal.signal(signal.SIGINT, handler)
-
-    def _stop_requested(self) -> str | None:
-        if (self.project_dir / STOP_FILENAME).exists():
-            return "STOP file detected"
-        if self._interrupted:
-            return "interrupted by Ctrl+C"
-        return None
-
-    def _maybe_restore_best(self, iteration: int) -> None:
-        """keep_best: if the run ever reached a better-scoring state than the
-        one it's ending in, restore that state before shutdown. Overnight runs
-        wander; the deliverable should be the best state ever reached, not the
-        last. Skipped when the run FINISHED (that state is goal-complete)."""
-        if not self.config.keep_best or self._finished:
-            return
-        entries = read_entries(self.project_dir)
-        best, final = best_state(entries), final_state(entries)
-        if not best or not final or best.get("commit") == final.get("commit"):
-            return
-        if fitness_of(best) <= fitness_of(final):
-            return
-        target = best["commit"]
-        summary = (f"restored best state {target} (iteration {best.get('iteration')}, "
-                   f"score {fitness_of(best)}) over final state {final.get('commit')} "
-                   f"(score {fitness_of(final)})")
-        try:
-            restore_paths(self.project_dir, target, WRITABLE_DIRS)
-        except Exception as e:
-            print(f"[9xf] warning: best-state restore failed: {e}")
-            return
-        print(f"[9xf] keep_best: {summary}")
-        commit_hash = ""
-        if has_changes(self.project_dir):
-            commit_hash = commit_all(self.project_dir, f"[shutdown] {summary}")
-        append_entry(self.project_dir, LogEntry(
-            iteration=iteration, timestamp=now_iso(), subtask="", summary=summary,
-            commit=commit_hash, event="restore_best", reverted_to=target,
-        ))
-
-    def _clean_shutdown(self, iteration: int, reason: str):
-        print(f"[9xf] shutting down: {reason}")
-        append_activity(self.project_dir, f"shutting down: {reason}", iteration=iteration,
-                        kind="shutdown")
-        try:
-            self._maybe_restore_best(iteration)
-        except Exception as e:
-            print(f"[9xf] warning: keep_best check failed: {e}")
-        append_entry(self.project_dir, LogEntry(
-            iteration=iteration, timestamp=now_iso(), subtask="", summary=reason,
-            event="shutdown",
-        ))
-        write_state(self.project_dir, running=False, iteration=iteration,
-                    stopped_reason=reason, ts=now_iso())
-        try:
-            if has_changes(self.project_dir):
-                commit_all(self.project_dir, f"9xf shutdown: {reason}")
-            else:
-                commit_all(self.project_dir, f"9xf shutdown: {reason}", allow_empty=True)
-        except Exception as e:
-            print(f"[9xf] warning: shutdown commit failed: {e}")
-
-    # -- mode scheduling & stuck detection -------------------------------------
-
-    def _pick_mode(self, iteration: int) -> str:
-        tl = load_tasks(self.project_dir)
-        if tl.all_resolved() and self._verify_attempts() < self.config.max_verify_attempts:
-            return "verify_done"
-        prev = [e for e in read_entries(self.project_dir) if e.get("event") == "iteration"]
-        if prev and not prev[-1].get("validation_passed"):
-            return "fix"
-        if self.config.review_every > 0 and iteration % self.config.review_every == 0:
-            return "review"
-        return "build"
-
-    def _verify_attempts(self) -> int:
-        return sum(1 for e in read_entries(self.project_dir)
-                   if e.get("event") in ("verify", "finished"))
-
-    def _planner_base(self, mode: str, codebase: str, history: str, tools: str) -> str:
-        mode_instructions = {"build": MODE_BUILD, "fix": MODE_FIX, "review": MODE_REVIEW}[mode]
-        has_src = any((self.project_dir / "src").glob("*.py"))
-        has_tests = any((self.project_dir / "tests").glob("test_*.py"))
-        if has_src and not has_tests:
-            mode_instructions += NO_TESTS_NOTE
-        tasks = tasks_for_prompt(self.project_dir)
-        tasks_section = TASKS_SECTION.format(tasks=tasks) if tasks else ""
-        contract = contract_for_prompt(self.project_dir)
-        contract_section = CONTRACT_SECTION.format(contract=contract) if contract else ""
-        notes = notes_for_prompt(self.project_dir) if self.config.notes_enabled else ""
-        notes_section = NOTES_SECTION.format(notes=notes) if notes else ""
-        entries = [e for e in read_entries(self.project_dir) if e.get("event") == "iteration"]
-        last_commit = entries[-1].get("commit", "") if entries else ""
-        changes = changes_since_last(self.project_dir, last_commit, self.config.diff_char_budget)
-        changes_section = CHANGES_SECTION.format(changes=changes) if changes else ""
-        return PLANNER_USER.format(
-            goal=self.goal, codebase=codebase, history=history,
-            tools=tools, mode_instructions=mode_instructions,
-            contract_section=contract_section,
-            tasks_section=tasks_section, notes_section=notes_section,
-            changes_section=changes_section,
-        )
-
-    def _plan(self, mode: str, codebase: str, history: str, tools: str) -> tuple[str, list[str]]:
-        """Generate the sub-task; if stuck signals fire, re-ask once with a
-        signal-specific nudge. Returns (subtask, fired_signal_kinds)."""
-        base = self._planner_base(mode, codebase, history, tools)
-        entries = [e for e in read_entries(self.project_dir) if e.get("event") == "iteration"]
-        subtask = self._complete("planner", PLANNER_SYSTEM, base).strip().splitlines()[0][:500]
-        signals = detect_signals(subtask, entries, self.config.stuck_similarity)
-        if not signals:
-            return self._ensure_eligible_plan(base, subtask), []
-        nudge = STUCK_NUDGE.format(
-            signals="\n".join(f"  - {s.kind}: {s.detail}" for s in signals))
-        retry = self._complete(
-            "planner_stuck_retry", PLANNER_SYSTEM, base + nudge,
-        ).strip().splitlines()[0][:500]
-        # keep the retry even if still similar — one nudge only; persistence is data
-        return self._ensure_eligible_plan(base, retry), [s.kind for s in signals]
-
-    def _task_ref_problem(self, subtask: str) -> str:
-        tl = load_tasks(self.project_dir)
-        if not tl.tasks:
-            return ""
-        open_tasks = tl.open_tasks()
-        if not open_tasks:
-            return ""
-        eligible = tl.eligible_task()
-        num = parse_task_ref_num(subtask)
-        if not num:
-            return f"planner did not name the eligible task T{eligible.num}" if eligible else ""
-        task = tl.get(num)
-        if task is None:
-            return f"T{num} is not in TASKS.md"
-        if not eligible or task.num != eligible.num:
-            if not task.open:
-                return f"T{num} is deferred or already resolved"
-            return f"T{num} is queued; the eligible next task is T{eligible.num}"
-        return ""
-
-    def _ensure_eligible_plan(self, base: str, subtask: str) -> str:
-        """Planner guardrail: don't execute unknown/deferred task references."""
-        problem = self._task_ref_problem(subtask)
-        if not problem:
-            return subtask
-        retry = self._complete(
-            "planner_task_retry",
-            PLANNER_SYSTEM,
-            base + TASK_ELIGIBILITY_NUDGE.format(reason=problem),
-        ).strip().splitlines()[0][:500]
-        if not self._task_ref_problem(retry):
-            return retry
-        tl = load_tasks(self.project_dir)
-        open_tasks = tl.open_tasks()
-        if open_tasks:
-            t = tl.eligible_task() or open_tasks[0]
-            if not parse_task_ref_num(retry):
-                instruction = strip_task_ref(retry or subtask)
-                return f"TASK T{t.num}: {instruction}"
-            return f"TASK T{t.num}: {t.text}"
-        return retry
-
-    # -- auto-revert (v0.3) -------------------------------------------------------
-
-    def _maybe_revert(self, iteration: int) -> None:
-        """After N consecutive failures, restore src/tests/tools to the last
-        green commit (history stays linear — restore + new commit, no reset).
-        Repeated reverts to the same commit defer the failing task instead,
-        so the loop can't ping-pong between revert and the same broken fix."""
-        cfg = self.config
-        if cfg.revert_after_failures <= 0:
-            return
-        entries = read_entries(self.project_dir)
-        iters = [e for e in entries if e.get("event") == "iteration"]
-        # a revert (or deferral) event resets the failure streak: only count
-        # failures from that iteration onward, so we don't re-trigger every loop
-        boundary = max((e.get("iteration", 0) for e in entries
-                        if e.get("event") == "revert"), default=0)
-        streak = []
-        for e in reversed(iters):
-            if e.get("validation_passed") or e.get("iteration", 0) < boundary:
-                break
-            streak.append(e)
-        if len(streak) < cfg.revert_after_failures:
-            return
-        green = next((e for e in reversed(iters)
-                      if e.get("validation_passed") and e.get("commit")), None)
-        if green is None:
-            return  # nothing green to go back to
-        target = green["commit"]
-
-        reverts_here = sum(1 for e in entries
-                           if e.get("event") == "revert" and e.get("reverted_to") == target)
-        if reverts_here >= MAX_REVERTS_TO_SAME_COMMIT:
-            # reverting again won't help — defer the task being ground on instead
-            task_id = next((e.get("task_id", 0) for e in streak if e.get("task_id")), 0)
-            if not task_id:
-                tl = load_tasks(self.project_dir)
-                task_id = next((t.num for t in tl.tasks
-                                if t.status == STATUS_IN_PROGRESS), 0)
-            if task_id:
-                mark_status(self.project_dir, task_id, STATUS_DEFERRED)
-                print(f"[9xf]   revert limit hit — deferring task T{task_id} instead")
-                append_entry(self.project_dir, LogEntry(
-                    iteration=iteration, timestamp=now_iso(), subtask="",
-                    summary=f"revert limit reached for {target}; deferred task T{task_id}",
-                    event="revert", reverted_to="",
-                ))
-                if has_changes(self.project_dir):
-                    commit_all(self.project_dir,
-                               f"[iter {iteration}] deferred T{task_id} after repeated reverts")
-            return
-
-        first_bad = streak[-1]["iteration"]
-        print(f"[9xf]   auto-revert: {len(streak)} consecutive failures — "
-              f"restoring {'/'.join(WRITABLE_DIRS)} to {target}")
-        restore_paths(self.project_dir, target, WRITABLE_DIRS)
-        summary = (f"auto-revert to {target} after {len(streak)} consecutive failures "
-                   f"(iterations {first_bad}–{streak[0]['iteration']} discarded)")
-        if cfg.notes_enabled:
-            append_notes(self.project_dir, iteration,
-                         [f"HARNESS: reverted to {target}; the approach of iterations "
-                          f"{first_bad}–{streak[0]['iteration']} failed — try differently"],
-                         cfg.notes_max_lines)
-        commit_hash = ""
-        if has_changes(self.project_dir):
-            commit_hash = commit_all(self.project_dir, f"[iter {iteration}] (revert) {summary}")
-        append_entry(self.project_dir, LogEntry(
-            iteration=iteration, timestamp=now_iso(), subtask="", summary=summary,
-            commit=commit_hash, event="revert", reverted_to=target,
-        ))
-
-    # -- branch-and-explore (v0.3) -------------------------------------------------
-
-    def _maybe_explore(self, iteration: int) -> LogEntry | None:
-        """Hard-stuck: try two genuinely different approaches on git branches,
-        validate both, adopt the winner on the main branch by file checkout.
-        Returns the explore LogEntry (consuming this iteration) or None."""
-        cfg = self.config
-        if not cfg.explore_enabled:
-            return None
-        entries = read_entries(self.project_dir)
-        if count_explores(entries) >= cfg.max_explores_per_run:
-            return None
-        if not should_explore(entries, cfg.explore_after_stuck):
-            return None
-
-        print(f"[9xf] iter {iteration} (explore) hard-stuck — trying two approaches on branches")
-        write_state(self.project_dir, running=True, iteration=iteration, mode="explore",
-                    subtask="(exploring two approaches)", ts=now_iso())
-        prev_entries = [e for e in entries if e.get("event") == "iteration"]
-        plan_query = " ".join(t.text for t in load_tasks(self.project_dir).open_tasks())
-        codebase = snapshot_codebase(self.project_dir, cfg.snapshot_budget,
-                                     subtask=plan_query, entries=prev_entries,
-                                     strategy=cfg.context_strategy)
-        history = history_for_context(self.project_dir, cfg.history_entries_in_context)
-        tools = tools_for_prompt(self.project_dir) if cfg.tools_enabled else "(tools disabled)"
-        base = self._planner_base("build", codebase, history, tools)
-
-        plan_a = self._complete(
-            "explore_plan_a",
-            PLANNER_SYSTEM, base + EXPLORE_NUDGE_A).strip().splitlines()[0][:500]
-        plan_b = self._complete(
-            "explore_plan_b",
-            PLANNER_SYSTEM, base + EXPLORE_NUDGE_B.format(plan_a=plan_a)
-        ).strip().splitlines()[0][:500]
-
-        home = current_branch(self.project_dir)
-        results: dict[str, dict] = {}
-        for label, plan in (("a", plan_a), ("b", plan_b)):
-            branch = f"explore-i{iteration}-{label}"
-            create_branch(self.project_dir, branch)
-            exec_codebase, _ = build_snapshot(
-                self.project_dir, cfg.snapshot_budget, subtask=plan,
-                entries=prev_entries, strategy=cfg.context_strategy)
-            notes = notes_for_prompt(self.project_dir) if cfg.notes_enabled else ""
-            contract = contract_for_prompt(self.project_dir)
-            contract_section = CONTRACT_SECTION.format(contract=contract) if contract else ""
-            executor_user = EXECUTOR_USER.format(
-                goal=self.goal, codebase=exec_codebase, subtask=plan, tools=tools,
-                contract_section=contract_section,
-                notes_section=NOTES_SECTION.format(notes=notes) if notes else "")
-            ev = self._execute_once(iteration, plan, executor_user, None,
-                                    log_violations=False, purpose=f"explore_executor_{label}")
-            acc, _ = (run_acceptance(self.project_dir, cfg.validation_timeout,
-                                     cfg.allow_network) if ev.written else (None, 0))
-            if has_changes(self.project_dir):
-                commit_all(self.project_dir, f"[iter {iteration}] (explore/{label}) {plan}")
-            results[label] = {
-                "plan": plan, "branch": branch, "summary": ev.parsed.summary,
-                "passed": ev.validation_passed and not ev.errors,
-                "acceptance_passed": acc, "tests_ran": ev.tests_ran,
-                "errors_n": len(ev.errors),
-            }
-            print(f"[9xf]   approach {label.upper()}: "
-                  f"{'ok' if results[label]['passed'] else 'FAILED'} — {plan[:80]}")
-            checkout_branch(self.project_dir, home)
-
-        def _key(r: dict) -> tuple:
-            return (r["passed"], 1 if r["acceptance_passed"] else 0,
-                    r["tests_ran"], -r["errors_n"])
-
-        winner = "a" if _key(results["a"]) >= _key(results["b"]) else "b"
-        loser = "b" if winner == "a" else "a"
-        restore_paths(self.project_dir, results[winner]["branch"], WRITABLE_DIRS)
-        rename_branch(self.project_dir, results[loser]["branch"],
-                      results[loser]["branch"] + "-rejected")
-        summary = (f"explore: adopted approach {winner.upper()} "
-                   f"({results[winner]['plan'][:100]}) over {loser.upper()}")
-        print(f"[9xf]   {summary}")
-        if cfg.notes_enabled:
-            append_notes(self.project_dir, iteration,
-                         [f"HARNESS: explored two approaches; adopted {winner.upper()} "
-                          f"({results[winner]['plan'][:100]})"], cfg.notes_max_lines)
-        commit_hash = ""
-        if has_changes(self.project_dir):
-            commit_hash = commit_all(self.project_dir, f"[iter {iteration}] (explore) {summary}")
-        entry = LogEntry(
-            iteration=iteration, timestamp=now_iso(),
-            subtask=results[winner]["plan"], summary=summary,
-            validation_passed=results[winner]["passed"], commit=commit_hash,
-            event="explore", mode="explore",
-            explore={**results, "winner": winner},
-            model_calls=self._take_model_calls(),
-            context_overflow=self.backend.take_overflow(),
-        )
-        append_entry(self.project_dir, entry)
-        write_state(self.project_dir, running=True, iteration=iteration, mode="explore",
-                    subtask=summary, validation_passed=results[winner]["passed"],
-                    ts=now_iso())
-        if has_changes(self.project_dir):
-            commit_all(self.project_dir, f"[iter {iteration}] log entry")
-        return entry
-
-    # -- decomposition (v0.3) ---------------------------------------------------
-
-    def _needs_decompose(self) -> bool:
-        if not self.config.decompose_enabled:
-            return False
-        if tasks_path(self.project_dir).exists():
-            return False
-        # one attempt per run dir: a logged decompose event means we already
-        # tried and fell back to v0.2 planning — don't retry forever
-        return not any(e.get("event") == "decompose" for e in read_entries(self.project_dir))
-
-    def _run_decompose(self, iteration: int) -> LogEntry:
-        """One model call breaking the goal into TASKS.md + ACCEPTANCE.md."""
-        print(f"[9xf] iter {iteration} (decompose) breaking the goal into tasks")
-        write_state(self.project_dir, running=True, iteration=iteration, mode="decompose",
-                    subtask="(decomposing goal)", ts=now_iso())
-        append_activity(self.project_dir, "asking model to decompose the goal",
-                        iteration=iteration, kind="model")
-        raw = self._complete("decompose", DECOMPOSE_SYSTEM, DECOMPOSE_USER.format(goal=self.goal))
-        append_activity(self.project_dir, "parsing decomposition output",
-                        iteration=iteration)
-        task_texts, criteria = parse_decomposition(raw)
-        task_texts, criteria, rejections = sanitize_decomposition(
-            self.goal, task_texts, criteria)
-        if rejections and len(task_texts) < 2:
-            retry_user = DECOMPOSE_USER.format(goal=self.goal) + DECOMPOSE_RETRY_NOTE.format(
-                rejections="\n".join(f"- {r}" for r in rejections[:8]))
-            raw = self._complete("decompose_retry", DECOMPOSE_SYSTEM, retry_user)
-            retry_tasks, retry_criteria = parse_decomposition(raw)
-            task_texts, criteria, retry_rejections = sanitize_decomposition(
-                self.goal, retry_tasks, retry_criteria)
-            rejections.extend(retry_rejections)
-
-        errors: list[str] = []
-        if rejections:
-            errors.extend(f"decomposition rejected {r}" for r in rejections[:8])
-        if len(task_texts) < 2:
-            # never die on a bad decomposition — fall back to v0.2 planning
-            errors.append(f"decomposition produced only {len(task_texts)} task(s); "
-                          "falling back to plain planning")
-            summary = "decomposition failed; continuing without a task list"
-        else:
-            save_tasks(self.project_dir,
-                       TaskList(tasks=[Task(num=i, text=t)
-                                       for i, t in enumerate(task_texts, start=1)]))
-            save_criteria(self.project_dir, criteria)
-            save_contract(self.project_dir, self.goal, task_texts, criteria)
-            append_activity(self.project_dir,
-                            f"created TASKS.md, ACCEPTANCE.md, and CONTRACT.md ({len(task_texts)} tasks)",
-                            iteration=iteration, kind="write")
-            summary = (f"decomposed goal into {len(task_texts)} tasks "
-                       f"and {len(criteria)} acceptance criteria")
-        print(f"[9xf]   {summary}")
-
-        commit_hash = ""
-        if has_changes(self.project_dir):
-            append_activity(self.project_dir, "committing decomposition result",
-                            iteration=iteration, kind="git")
-            commit_hash = commit_all(self.project_dir, f"[iter {iteration}] (decompose) {summary}")
-        entry = LogEntry(
-            iteration=iteration, timestamp=now_iso(), subtask="(decompose goal)",
-            summary=summary, errors=errors, commit=commit_hash,
-            event="decompose", mode="decompose",
-            tasks_total=len(task_texts) if len(task_texts) >= 2 else 0,
-            model_calls=self._take_model_calls(),
-            context_overflow=self.backend.take_overflow(),
-        )
-        append_entry(self.project_dir, entry)
-        write_state(self.project_dir, running=True, iteration=iteration, mode="decompose",
-                    subtask=summary, ts=now_iso())
-        if has_changes(self.project_dir):
-            commit_all(self.project_dir, f"[iter {iteration}] log entry")
-        return entry
-
-    # -- task bookkeeping (v0.3) ------------------------------------------------
-
-    def _task_failures(self, task_id: int) -> int:
-        return sum(1 for e in read_entries(self.project_dir)
-                   if e.get("event") == "iteration" and e.get("task_id") == task_id
-                   and not e.get("validation_passed"))
-
-    def _check_task_done(self, task_id: int, errors: list[str]) -> bool:
-        """One cheap YES/NO model call: is task Tn fully complete now?"""
-        tl = load_tasks(self.project_dir)
-        task = tl.get(task_id)
-        if task is None:
-            return False
-        codebase = snapshot_codebase(self.project_dir, self.config.snapshot_budget)
-        contract = contract_for_prompt(self.project_dir) or "(none)"
-        try:
-            reply = self._complete(
-                "task_check",
-                TASK_CHECK_SYSTEM,
-                TASK_CHECK_USER.format(codebase=codebase, contract=contract,
-                                       num=task.num, text=task.text),
-            )
-        except BackendError as e:
-            errors.append(f"task-check call failed: {e}")
-            return False
-        first = reply.strip().splitlines()[0].strip().upper() if reply.strip() else ""
-        return first.startswith("YES")
-
-    # -- verify-done (v0.3) -------------------------------------------------------
-
-    def _run_verify(self, iteration: int) -> LogEntry:
-        """All tasks resolved: full-project validation + per-criterion verdicts.
-        The model's PASS lines can only block finishing, never force it — the
-        harness validation must also be green."""
-        cfg = self.config
-        print(f"[9xf] iter {iteration} (verify_done) checking acceptance criteria")
-        write_state(self.project_dir, running=True, iteration=iteration, mode="verify_done",
-                    subtask="(verifying goal completion)", ts=now_iso())
-
-        all_files = [p for d in ("src", "tests", "tools")
-                     for p in sorted((self.project_dir / d).rglob("*.py"))]
-        result = validate(self.project_dir, all_files, cfg.validation_timeout,
-                          cfg.allow_network, run_tests=cfg.run_tests)
-        errors = list(result.errors)
-        acc_passed, acc_ran = run_acceptance(self.project_dir, cfg.validation_timeout,
-                                             cfg.allow_network)
-        if acc_passed is False:
-            errors.append(f"held-out acceptance suite failed ({acc_ran} tests)")
-
-        harness_green = result.passed and acc_passed is not False
-        criteria = load_criteria(self.project_dir)
-        failed: dict[int, str] = {}
-        if harness_green and criteria:
-            codebase = snapshot_codebase(self.project_dir, cfg.snapshot_budget)
-            validation_text = result.detail + (
-                "; errors: " + "; ".join(result.errors) if result.errors else " (all green)")
-            raw = self._complete(
-                "verify_done",
-                VERIFY_DONE_SYSTEM,
-                VERIFY_DONE_USER.format(goal=self.goal, codebase=codebase,
-                                        contract=contract_for_prompt(self.project_dir) or "(none)",
-                                        validation=validation_text,
-                                        criteria=criteria_for_prompt(self.project_dir)),
-            )
-            passed_nums, failed = parse_verify_output(raw)
-            crit_texts = dict(criteria)
-            # strict: a criterion with no verdict counts as failed
-            for num in crit_texts:
-                if num not in passed_nums and num not in failed:
-                    failed[num] = "no verdict from model"
-
-        if harness_green and not failed:
-            summary = "goal complete: harness validation green and all acceptance criteria passed"
-            event = "finished"
-            self._finished = True
-        else:
-            event = "verify"
-            corrective = []
-            crit_texts = dict(criteria)
-            for num, reason in sorted(failed.items()):
-                text = crit_texts.get(num, f"criterion C{num}")
-                corrective.append(f"Fix acceptance criterion C{num} ({text})"
-                                  + (f": {reason}" if reason else ""))
-            if not result.passed:
-                corrective.append("Fix validation failures: " + "; ".join(result.errors)[:300])
-            if acc_passed is False:
-                corrective.append("Fix the failing held-out acceptance tests "
-                                  "(run via the acceptance criteria — the suite itself is read-only)")
-            append_tasks(self.project_dir, corrective)
-            if harness_green:
-                summary = (f"verify-done: {len(failed)} criteria failed, "
-                           "validation green; "
-                           f"added {len(corrective)} corrective task(s)")
-            else:
-                summary = (f"verify-done: validation "
-                           f"{'green' if result.passed else 'FAILED'}; "
-                           f"added {len(corrective)} corrective task(s)")
-        print(f"[9xf]   {summary}")
-
-        tl = load_tasks(self.project_dir)
-        done, total = tl.counts()
-        commit_hash = ""
-        if has_changes(self.project_dir):
-            commit_hash = commit_all(self.project_dir, f"[iter {iteration}] (verify_done) {summary}")
-        entry = LogEntry(
-            iteration=iteration, timestamp=now_iso(), subtask="(verify goal completion)",
-            summary=summary, validation_passed=result.passed,
-            validation_detail=result.detail, errors=errors, commit=commit_hash,
-            event=event, mode="verify_done", tests_ran=result.tests_ran,
-            tasks_done=done, tasks_total=total,
-            acceptance_passed=acc_passed, acceptance_ran=acc_ran,
-            failure_kind=result.failure_kind,
-            error_signature=result.error_signature,
-            error_excerpt=result.error_excerpt,
-            model_calls=self._take_model_calls(),
-            context_overflow=self.backend.take_overflow(),
-        )
-        append_entry(self.project_dir, entry)
-        write_state(self.project_dir, running=True, iteration=iteration, mode="verify_done",
-                    subtask=summary, validation_passed=result.passed, ts=now_iso())
-        if has_changes(self.project_dir):
-            commit_all(self.project_dir, f"[iter {iteration}] log entry")
-        return entry
-
-    # -- one executor attempt ----------------------------------------------------
-
-    def _execute_once(self, iteration: int, subtask: str, executor_user: str,
-                      temperature: float | None, log_violations: bool = True,
-                      purpose: str = "executor") -> ExecOutcome:
-        """One executor call: complete -> parse -> write -> validate.
-        log_violations=False during branch exploration, where appending log
-        lines would diverge the JSONL across branches."""
-        cfg = self.config
-        append_activity(self.project_dir, "asking model to write code",
-                        iteration=iteration, kind="model")
-        raw = self._complete(purpose, EXECUTOR_SYSTEM, executor_user, temperature=temperature)
-        parsed = parse_executor_output(raw)
-        for attempt in range(max(0, cfg.format_retry_attempts)):
-            fatal = _fatal_parse_problems(parsed)
-            if not fatal:
-                break
-            append_activity(self.project_dir,
-                            f"format retry {attempt + 1}: executor output was not parseable",
-                            iteration=iteration, kind="repair")
-            retry_user = executor_user + FORMAT_RETRY_NOTE.format(
-                problems="\n".join(f"- {p}" for p in parsed.problems)[:1200])
-            raw = self._complete(f"{purpose}_format_retry", EXECUTOR_SYSTEM,
-                                 retry_user, temperature=temperature)
-            parsed = parse_executor_output(raw)
-        if not parsed.summary and parsed.files:
-            names = ", ".join(list(parsed.files)[:3])
-            parsed.summary = f"updated {names}"
-        outcome = ExecOutcome(
-            parsed=parsed,
-            errors=_fatal_parse_problems(parsed),
-            parse_warnings=_parse_warnings(parsed),
-        )
-        if parsed.files:
-            append_activity(self.project_dir,
-                            f"model proposed {len(parsed.files)} file write(s)",
-                            iteration=iteration)
-        for rel_path, content in parsed.files.items():
-            try:
-                append_activity(self.project_dir, f"writing {rel_path}",
-                                iteration=iteration, kind="write")
-                outcome.written.append(safe_write(self.project_dir, rel_path, content))
-            except ContainmentViolation as v:
-                outcome.errors.append(str(v))
-                append_activity(self.project_dir, f"rejected write to {v.requested}",
-                                iteration=iteration, kind="error")
-                if log_violations:
-                    append_entry(self.project_dir, LogEntry(
-                        iteration=iteration, timestamp=now_iso(), subtask=subtask,
-                        summary=f"containment violation: {v.requested!r}", event="violation",
-                    ))
-        if outcome.written:
-            append_activity(self.project_dir,
-                            f"validating {len(outcome.written)} written file(s)",
-                            iteration=iteration, kind="validate")
-            result = validate(self.project_dir, outcome.written, cfg.validation_timeout,
-                              cfg.allow_network, run_tests=cfg.run_tests)
-            outcome.errors.extend(result.errors)
-            outcome.validation_passed = result.passed
-            outcome.validation_detail = result.detail
-            outcome.tests_ran = result.tests_ran
-            outcome.failure_kind = result.failure_kind
-            outcome.error_signature = result.error_signature
-            outcome.error_excerpt = result.error_excerpt
-            append_activity(self.project_dir,
-                            "validation passed" if result.passed else
-                            f"validation failed: {result.failure_kind or 'error'}",
-                            iteration=iteration,
-                            kind="validate" if result.passed else "error")
-        else:
-            outcome.validation_detail = "nothing written"
-            if outcome.errors:
-                outcome.failure_kind = "parse"
-                outcome.error_signature = outcome.errors[0].lower()[:300]
-                outcome.error_excerpt = outcome.errors[0]
-        return outcome
-
-    def _should_diagnose(self, outcome: ExecOutcome) -> bool:
-        if not outcome.errors:
-            return False
-        if outcome.failure_kind in {"timeout", "slow_test"}:
-            return True
-        sig = outcome.error_signature
-        if not sig:
-            return False
-        recent = [e for e in read_entries(self.project_dir)
-                  if e.get("event") == "iteration" and not e.get("validation_passed")]
-        return any(e.get("error_signature") == sig for e in recent[-2:])
-
-    def _diagnose(self, subtask: str, outcome: ExecOutcome,
-                  codebase: str, history: str) -> str:
-        evidence = "\n".join(outcome.errors[:3])
-        if outcome.error_excerpt and outcome.error_excerpt not in evidence:
-            evidence += "\n\n" + outcome.error_excerpt
-        contract = contract_for_prompt(self.project_dir) or "(none)"
-        try:
-            return self._complete(
-                "diagnosis",
-                DIAGNOSIS_SYSTEM,
-                DIAGNOSIS_USER.format(
-                    goal=self.goal, codebase=codebase, history=history,
-                    contract=contract, subtask=subtask, errors=evidence[:5000],
-                ),
-            ).strip()[:2000]
-        except BackendError:
-            raise
-        except Exception as e:
-            return f"CAUSE: diagnosis failed: {e}\nPATCH_PLAN: use validation evidence directly"
-
-    def _reflection_due(
-        self,
-        iteration: int,
-        *,
-        failed: bool,
-        regression: bool,
-        stuck_signals: list[str],
-        parse_warnings: list[str],
-        critic_verdict: str,
-    ) -> bool:
-        cfg = self.config
-        if not (cfg.notes_enabled and cfg.reflection_enabled):
-            return False
-        if failed or regression or stuck_signals or parse_warnings:
-            return True
-        if critic_verdict == "REVISE":
-            return True
-        return cfg.reflection_every > 0 and iteration % cfg.reflection_every == 0
-
-    def _parse_reflection_notes(self, raw: str, existing_notes: str) -> list[str]:
-        existing = existing_notes.lower()
-        notes: list[str] = []
-        seen: set[str] = set()
-        for line in raw.splitlines():
-            m = REFLECTION_LINE_RE.match(line.strip())
-            if not m:
-                continue
-            label = line.split(":", 1)[0].upper()
-            text = m.group("text").strip()
-            if not text:
-                continue
-            note = f"{label}: {text}"
-            key = re.sub(r"\s+", " ", note.lower())
-            if key in seen or key in existing:
-                continue
-            seen.add(key)
-            notes.append(note[:300])
-            if len(notes) >= self.config.reflection_max_notes:
-                break
-        return notes
-
-    def _reflect(
-        self,
-        iteration: int,
-        *,
-        mode: str,
-        subtask: str,
-        outcome: ExecOutcome,
-        files_written: list[str],
-        validation_passed: bool,
-        errors: list[str],
-        regression: bool,
-        stuck_signals: list[str],
-        critic_verdict: str,
-        diagnosis: str,
-        codebase: str,
-        history: str,
-    ) -> list[str]:
-        append_activity(self.project_dir, "reflecting on recent evidence",
-                        iteration=iteration, kind="reflection")
-        notes = notes_for_prompt(self.project_dir) if self.config.notes_enabled else ""
-        try:
-            raw = self._complete(
-                "reflection",
-                REFLECTION_SYSTEM,
-                REFLECTION_USER.format(
-                    goal=self.goal,
-                    contract=contract_for_prompt(self.project_dir) or "(none)",
-                    codebase=codebase[: self.config.snapshot_budget],
-                    history=history,
-                    mode=mode,
-                    subtask=subtask,
-                    summary=outcome.parsed.summary,
-                    files=", ".join(files_written) or "(none)",
-                    validation_passed=validation_passed,
-                    validation_detail=outcome.validation_detail,
-                    errors="; ".join(str(e) for e in errors)[:1200] or "(none)",
-                    parse_warnings="; ".join(outcome.parse_warnings) or "(none)",
-                    regression=regression,
-                    stuck_signals=", ".join(stuck_signals) or "(none)",
-                    diagnosis=diagnosis or "(none)",
-                    notes=notes or "(none)",
-                ),
-            )
-        except BackendError as e:
-            append_activity(self.project_dir, f"reflection skipped: {e}",
-                            iteration=iteration, kind="error")
-            return []
-        learned = self._parse_reflection_notes(raw, notes)
-        if learned:
-            append_activity(self.project_dir, f"learned {len(learned)} prompt note(s)",
-                            iteration=iteration, kind="reflection")
-        return learned
-
-    # -- in-iteration repair (overnight) -----------------------------------------
-
-    def _repair_loop(self, iteration: int, subtask: str, executor_user: str,
-                     outcome: ExecOutcome) -> tuple[ExecOutcome, list[dict]]:
-        """Failed validation gets fixed NOW, not next iteration: re-prompt the
-        executor with the broken file contents and the exact errors, up to
-        repair_attempts times. A whole-iteration round trip (re-plan, re-snapshot)
-        costs minutes on a local model; a repair call costs seconds and targets
-        the precise failure — the highest-leverage trade of time for quality."""
-        repairs: list[dict] = []
-        attempt = 0
-        while (attempt < self.config.repair_attempts
-               and (not outcome.validation_passed or outcome.errors)):
-            attempt += 1
-            append_activity(self.project_dir, f"repair attempt {attempt}",
-                            iteration=iteration, kind="repair")
-            dump = _repair_file_dump(self.project_dir, outcome, REPAIR_FILES_CHARS)
-            errors = "\n".join(str(e) for e in outcome.errors)
-            if outcome.error_excerpt and outcome.error_excerpt not in errors:
-                errors += "\n\n" + outcome.error_excerpt
-            errors = errors[:3500] or "(none recorded)"
-            repair_user = executor_user + REPAIR_NOTE.format(files=dump, errors=errors)
-            new = self._execute_once(iteration, subtask, repair_user, None, purpose="repair")
-            repairs.append({
-                "attempt": attempt,
-                "errors_before": [str(e)[:200] for e in outcome.errors][:5],
-                "passed": new.validation_passed and not new.errors,
-            })
-            print(f"[9xf]   repair {attempt}/{self.config.repair_attempts}: "
-                  f"{'ok' if repairs[-1]['passed'] else 'still failing'}"
-                  f" — {new.parsed.summary[:80]}")
-            if not new.written and not new.parsed.files:
-                break  # repair produced nothing usable; keep what we have
-            outcome = new
-        return outcome, repairs
+        # One file cache for the whole run: context building re-scores the
+        # codebase every iteration, but a file's read + AST parse only changes
+        # when the file does. mtime-keyed, so git restores invalidate correctly.
+        self._file_cache = FileCache()
 
     # -- one iteration ---------------------------------------------------------
 
@@ -1022,7 +75,7 @@ class LoopRunner:
             plan_query = f"{prev_entries[-1].get('subtask', '')} {plan_query}"
         codebase = snapshot_codebase(self.project_dir, cfg.snapshot_budget,
                                      subtask=plan_query, entries=prev_entries,
-                                     strategy=cfg.context_strategy)
+                                     strategy=cfg.context_strategy, cache=self._file_cache)
         history = history_for_context(self.project_dir, cfg.history_entries_in_context)
         tools = tools_for_prompt(self.project_dir) if cfg.tools_enabled else "(tools disabled)"
         mode = self._pick_mode(iteration)
@@ -1034,7 +87,7 @@ class LoopRunner:
                         iteration=iteration, kind="model")
         subtask, stuck_signals = self._plan(mode, codebase, history, tools)
         stuck_note = f", stuck: {'+'.join(stuck_signals)}" if stuck_signals else ""
-        print(f"[9xf] iter {iteration} ({mode}{stuck_note}) subtask: {subtask}")
+        logger.info(f"[9xf] iter {iteration} ({mode}{stuck_note}) subtask: {subtask}")
         write_state(self.project_dir, running=True, iteration=iteration, mode=mode,
                     subtask=subtask, ts=now_iso())
         append_activity(self.project_dir, f"selected next step: {subtask[:160]}",
@@ -1050,7 +103,7 @@ class LoopRunner:
         # record which files the executor actually saw (a key research observable)
         exec_codebase, context_files = build_snapshot(
             self.project_dir, cfg.snapshot_budget, subtask=subtask,
-            entries=prev_entries, strategy=cfg.context_strategy)
+            entries=prev_entries, strategy=cfg.context_strategy, cache=self._file_cache)
         notes = notes_for_prompt(self.project_dir) if cfg.notes_enabled else ""
         contract = contract_for_prompt(self.project_dir)
         contract_section = CONTRACT_SECTION.format(contract=contract) if contract else ""
@@ -1081,7 +134,7 @@ class LoopRunner:
                     errors_n=len(ev.errors), files_n=len(ev.written))
                 evals.append((ev, cr))
                 candidates_log.append(cr.as_log())
-                print(f"[9xf]   candidate {i} (t={temp}): "
+                logger.info(f"[9xf]   candidate {i} (t={temp}): "
                       f"{'ok' if cr.passed else 'FAILED'} — {ev.parsed.summary[:80]}")
                 restore_paths(self.project_dir, "HEAD", WRITABLE_DIRS)
             chosen = pick_winner([cr for _, cr in evals])
@@ -1093,7 +146,7 @@ class LoopRunner:
                     safe_write(self.project_dir, rel_path, content)
                 except ContainmentViolation:
                     pass  # already recorded during the candidate's evaluation
-            print(f"[9xf]   chose candidate {chosen} of {n}")
+            logger.info(f"[9xf]   chose candidate {chosen} of {n}")
         else:
             outcome = self._execute_once(iteration, subtask, executor_user, None)
 
@@ -1124,14 +177,14 @@ class LoopRunner:
             critic_verdict, critic_issues = parse_critic_output(raw_verdict)
             if critic_verdict == "REVISE" and critic_issues and cfg.critic_max_revisions > 0:
                 critic_revised = True
-                print(f"[9xf]   critic: REVISE — {'; '.join(critic_issues)[:120]}")
+                logger.info(f"[9xf]   critic: REVISE — {'; '.join(critic_issues)[:120]}")
                 revise_user = executor_user + REVISE_NOTE.format(
                     issues="\n".join(f"- {i}" for i in critic_issues))
                 # one revision on top of the first attempt; commit either way
                 outcome = self._execute_once(iteration, subtask, revise_user, None,
                                              purpose="critic_revision")
             elif critic_verdict:
-                print(f"[9xf]   critic: {critic_verdict}")
+                logger.info(f"[9xf]   critic: {critic_verdict}")
 
         parsed, written, errors = outcome.parsed, outcome.written, outcome.errors
         validation_passed = outcome.validation_passed
@@ -1149,12 +202,12 @@ class LoopRunner:
                     tool_runs.append({"name": name, "args": args, "result": notice})
                     append_activity(self.project_dir, f"ignored RUN_TOOL {name}: validation handles it",
                                     iteration=iteration, kind="tool")
-                    print(f"[9xf]   tool {name} {args}: {notice[:120]}")
+                    logger.info(f"[9xf]   tool {name} {args}: {notice[:120]}")
                     continue
                 result = run_tool(self.project_dir, name, args,
                                   cfg.validation_timeout, cfg.allow_network)
                 tool_runs.append({"name": name, "args": args, "result": result})
-                print(f"[9xf]   tool {name} {args}: {result[:120]}")
+                logger.info(f"[9xf]   tool {name} {args}: {result[:120]}")
                 if result.startswith(f"tool {name!r} not found"):
                     msg = f"unknown tool requested: {name!r}; available tools: {tools}"
                     errors.append(msg)
@@ -1183,12 +236,12 @@ class LoopRunner:
         if task_id:
             if not failed and self._check_task_done(task_id, errors):
                 mark_status(self.project_dir, task_id, STATUS_DONE)
-                print(f"[9xf]   task T{task_id} marked done")
+                logger.info(f"[9xf]   task T{task_id} marked done")
             elif failed and self._task_failures(task_id) + 1 >= cfg.max_task_failures:
                 mark_status(self.project_dir, task_id, STATUS_DEFERRED)
                 errors.append(f"task T{task_id} deferred after "
                               f"{cfg.max_task_failures} failed attempts")
-                print(f"[9xf]   task T{task_id} deferred")
+                logger.info(f"[9xf]   task T{task_id} deferred")
                 if cfg.notes_enabled:
                     append_notes(self.project_dir, iteration,
                                  [f"HARNESS: task T{task_id} deferred after "
@@ -1318,8 +371,8 @@ class LoopRunner:
         write_state(self.project_dir, running=True, iteration=start, ts=now_iso())
         append_activity(self.project_dir, f"run started with {cfg.model}",
                         iteration=start, kind="startup")
-        print(f"[9xf] goal: {self.goal}")
-        print(f"[9xf] model: {cfg.model} | starting at iteration {start + 1}, cap {cap}"
+        logger.info(f"[9xf] goal: {self.goal}")
+        logger.info(f"[9xf] model: {cfg.model} | starting at iteration {start + 1}, cap {cap}"
               + (f" | time budget {budget_h}h" if deadline else ""))
 
         backend_failures = 0
@@ -1341,14 +394,14 @@ class LoopRunner:
                     mark = "✓" if entry.validation_passed else "✗"
                 else:
                     mark = "•"
-                print(f"[9xf] iter {iteration} {mark} {entry.summary or '(no summary)'}"
+                logger.info(f"[9xf] iter {iteration} {mark} {entry.summary or '(no summary)'}"
                       f"  [{entry.commit or 'no commit'}]")
                 if self._finished:
                     self._clean_shutdown(iteration, "goal complete")
                     return
             except BackendError as e:
                 backend_failures += 1
-                print(f"[9xf] iter {iteration} backend error ({backend_failures}/"
+                logger.info(f"[9xf] iter {iteration} backend error ({backend_failures}/"
                       f"{MAX_CONSECUTIVE_BACKEND_FAILURES}): {e}")
                 append_activity(self.project_dir, f"backend error: {e}",
                                 iteration=iteration, kind="error")

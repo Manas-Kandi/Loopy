@@ -1,0 +1,8 @@
+Implement src/anagram_groups.py with a function group_anagrams(words) that
+groups a list of words so that words which are anagrams of each other end up in
+the same group. Return a list of groups (each group a list of the original
+words). Words use the same letters in any order to be anagrams; comparison is
+case-sensitive.
+
+Example: group_anagrams(["eat","tea","tan","ate","nat","bat"]) groups
+{eat, tea, ate}, {tan, nat}, and {bat}.

@@ -121,7 +121,8 @@ def cmd_run(args):
         LoopRunner(project, config).run(max_iterations=args.max_iterations,
                                         delay=args.delay, hours=args.hours)
     except KeyboardInterrupt:
-        print("\n[9xf] force-quit (second Ctrl+C) — current iteration abandoned")
+        from ninexf.log import logger
+        logger.warning("\n[9xf] force-quit (second Ctrl+C) — current iteration abandoned")
         sys.exit(130)
 
 
@@ -229,6 +230,30 @@ def cmd_report(args):
     print(f"wrote {path}")
 
 
+def cmd_bench(args):
+    from ninexf.bench.spec import ExperimentSpec, available_experiments, all_task_names
+    out_dir = Path(args.out).resolve()
+    if args.bench_command == "list":
+        print("experiments:", ", ".join(available_experiments()) or "(none)")
+        print("tasks:", ", ".join(all_task_names()) or "(none)")
+        return
+    if args.bench_command == "report":
+        from ninexf.bench.report import generate_report
+        path = generate_report(out_dir)
+        print(f"wrote {path}")
+        return
+    if args.bench_command == "run":
+        from ninexf.bench.runner import run_experiment
+        from ninexf.bench.report import generate_report
+        exp = ExperimentSpec.load(args.experiment)
+        results = run_experiment(exp, out_dir)
+        path = generate_report(out_dir)
+        passes = sum(1 for r in results if r.oracle_passed)
+        print(f"[bench] {passes}/{len(results)} cells passed the oracle")
+        print(f"[bench] wrote {path}")
+        return
+
+
 def main(argv=None):
     if argv is None:
         argv = sys.argv[1:]
@@ -238,6 +263,8 @@ def main(argv=None):
         return
     parser = argparse.ArgumentParser(prog="9xf", description="9xf loops — autonomous coding loop research harness")
     parser.add_argument("--version", action="version", version=f"9xf loops {__version__}")
+    parser.add_argument("--verbose", action="store_true", help="more console detail (debug level)")
+    parser.add_argument("--quiet", action="store_true", help="warnings and errors only")
     sub = parser.add_subparsers(dest="command", required=True)
 
     def add_dir(p):
@@ -317,7 +344,21 @@ def main(argv=None):
     add_dir(p)
     p.set_defaults(func=cmd_report)
 
+    p = sub.add_parser("bench", help="falsifiable eval: run experiments against fixed "
+                                     "external oracles and report pass-rates")
+    bsub = p.add_subparsers(dest="bench_command", required=True)
+    bp = bsub.add_parser("run", help="run an experiment (e.g. smoke, thesis, ablation)")
+    bp.add_argument("experiment", help="experiment name under ninexf/bench/experiments/")
+    bp.add_argument("--out", default="bench_out", help="output directory")
+    bp = bsub.add_parser("report", help="regenerate BENCH.md from an existing bench_results.json")
+    bp.add_argument("--out", default="bench_out", help="output directory")
+    bp = bsub.add_parser("list", help="list available experiments and tasks")
+    bp.add_argument("--out", default="bench_out", help="(unused) output directory")
+    p.set_defaults(func=cmd_bench)
+
     args = parser.parse_args(argv)
+    from ninexf.log import configure
+    configure(verbose=getattr(args, "verbose", False), quiet=getattr(args, "quiet", False))
     args.func(args)
 
 

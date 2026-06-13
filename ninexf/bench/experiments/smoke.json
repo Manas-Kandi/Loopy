@@ -1,0 +1,14 @@
+{
+  "name": "smoke",
+  "description": "Mock-backend self-test of the bench harness. No real model. The mock 'finisher' always builds the greeting, so it PASSES the greeting oracle and FAILS the calculator oracle — proving the external oracle scores both directions.",
+  "seeds": 1,
+  "tasks": ["greeting", "calculator"],
+  "cells": [
+    {
+      "label": "mock-finisher",
+      "model": "mock/finisher",
+      "preset": null,
+      "overrides": {"max_iterations": 15, "delay_seconds": 0}
+    }
+  ]
+}

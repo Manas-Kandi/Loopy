@@ -1,0 +1,6 @@
+Implement src/roman.py with two functions for Roman numerals (valid for 1..3999):
+
+  to_roman(n)    -> the Roman-numeral string for integer n (e.g. to_roman(1994) == "MCMXCIV")
+  from_roman(s)  -> the integer for a Roman-numeral string (the inverse)
+
+Use standard subtractive notation (IV, IX, XL, XC, CD, CM).

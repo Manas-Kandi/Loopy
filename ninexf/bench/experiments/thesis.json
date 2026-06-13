@@ -1,0 +1,21 @@
+{
+  "name": "thesis",
+  "description": "The core question: does a 7B local model + overnight verified search approach a frontier model? Each cell gets the SAME per-task budget; only the model and the amount of search differ. Tune max_iterations/max_hours per cell for how long you want to run.",
+  "seeds": 3,
+  "reference_cell": "frontier-baseline",
+  "tasks": ["*"],
+  "cells": [
+    {
+      "label": "7b-overnight",
+      "model": "ollama/qwen2.5-coder:7b",
+      "preset": "overnight",
+      "overrides": {"max_iterations": 200, "max_hours": 0.5, "delay_seconds": 0}
+    },
+    {
+      "label": "frontier-baseline",
+      "model": "anthropic/claude-sonnet-4-6",
+      "preset": "baseline",
+      "overrides": {"max_iterations": 30, "max_hours": 0.5, "delay_seconds": 0}
+    }
+  ]
+}

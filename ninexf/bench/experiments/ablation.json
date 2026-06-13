@@ -1,0 +1,16 @@
+{
+  "name": "ablation",
+  "description": "Which overnight mechanisms actually move the needle? All cells use the same 7B model and the same budget; each disables one mechanism relative to the full overnight preset. Compared against the full 'overnight' cell.",
+  "seeds": 3,
+  "reference_cell": "overnight",
+  "tasks": ["*"],
+  "cells": [
+    {"label": "overnight",    "model": "ollama/qwen2.5-coder:7b", "preset": "overnight", "overrides": {"max_iterations": 200, "max_hours": 0.5, "delay_seconds": 0}},
+    {"label": "no-best-of-n", "model": "ollama/qwen2.5-coder:7b", "preset": "overnight", "overrides": {"max_iterations": 200, "max_hours": 0.5, "delay_seconds": 0, "best_of_n": 1, "best_of_mode": "off"}},
+    {"label": "no-critic",    "model": "ollama/qwen2.5-coder:7b", "preset": "overnight", "overrides": {"max_iterations": 200, "max_hours": 0.5, "delay_seconds": 0, "critic_enabled": false}},
+    {"label": "no-explore",   "model": "ollama/qwen2.5-coder:7b", "preset": "overnight", "overrides": {"max_iterations": 200, "max_hours": 0.5, "delay_seconds": 0, "explore_enabled": false}},
+    {"label": "no-repair",    "model": "ollama/qwen2.5-coder:7b", "preset": "overnight", "overrides": {"max_iterations": 200, "max_hours": 0.5, "delay_seconds": 0, "repair_attempts": 0}},
+    {"label": "no-keep-best", "model": "ollama/qwen2.5-coder:7b", "preset": "overnight", "overrides": {"max_iterations": 200, "max_hours": 0.5, "delay_seconds": 0, "keep_best": false}},
+    {"label": "baseline",     "model": "ollama/qwen2.5-coder:7b", "preset": "baseline",  "overrides": {"max_iterations": 200, "max_hours": 0.5, "delay_seconds": 0}}
+  ]
+}

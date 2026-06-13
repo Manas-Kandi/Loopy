@@ -1,0 +1,2 @@
+Create a command-line program at src/main.py that prints a greeting.
+Running `python src/main.py` must exit 0 and print a line containing the word "hello".

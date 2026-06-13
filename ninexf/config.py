@@ -84,6 +84,20 @@ PRESETS = {
         "acceptance_tests": True,
         "keep_best": True,
     },
+    # The control condition for benchmarking: decompose + validate, but none of
+    # the overnight search machinery (no best-of-N, critic, explore, repair,
+    # reflection, or keep-best). Isolates "what does the search actually buy?"
+    "baseline": {
+        "best_of_n": 1,
+        "best_of_mode": "off",
+        "critic_enabled": False,
+        "explore_enabled": False,
+        "repair_attempts": 0,
+        "format_retry_attempts": 1,
+        "reflection_enabled": False,
+        "keep_best": False,
+        "acceptance_tests": False,
+    },
 }
 
 

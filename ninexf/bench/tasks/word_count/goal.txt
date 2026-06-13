@@ -1,0 +1,6 @@
+Implement src/word_count.py with a function word_frequencies(text) that returns
+a dict mapping each word to the number of times it appears. A word is a maximal
+run of alphanumeric characters; split on any non-alphanumeric character. Counting
+is case-insensitive, so words are lowercased in the result.
+
+Example: word_frequencies("The cat the CAT.") -> {"the": 2, "cat": 2}

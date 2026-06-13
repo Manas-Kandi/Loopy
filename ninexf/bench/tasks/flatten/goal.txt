@@ -1,0 +1,8 @@
+Implement src/flatten.py with a function flatten(d, sep=".") that flattens a
+nested dictionary into a single-level dictionary. Nested keys are joined by sep.
+Lists and other non-dict values are kept as-is (do not recurse into lists).
+
+Example:
+  flatten({"a": 1, "b": {"c": 2, "d": {"e": 3}}})
+    -> {"a": 1, "b.c": 2, "b.d.e": 3}
+  flatten({"a": {"b": 1}}, sep="/") -> {"a/b": 1}

@@ -1,0 +1,7 @@
+{
+  "tier": "easy",
+  "category": "cli",
+  "max_iterations": 12,
+  "hours": 0.0,
+  "allow_network": false
+}

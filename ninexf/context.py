@@ -48,6 +48,7 @@ def build_snapshot(
     subtask: str = "",
     entries: list[dict] | None = None,
     strategy: str = "brute",
+    cache=None,  # optional FileCache shared across iterations (duck-typed)
 ) -> tuple[str, list[str]]:
     """File tree plus file contents up to the budget.
     Returns (snapshot_text, included_relative_paths) — what was actually shown
@@ -62,7 +63,7 @@ def build_snapshot(
     candidates = [(p, str(r)) for p, r in zip(files, rels)
                   if r.parts and r.parts[0] in CONTENT_DIRS]
     if strategy == "relevance" and subtask:
-        scored = score_files(candidates, subtask, entries or [])
+        scored = score_files(candidates, subtask, entries or [], cache=cache)
         ordered = [(s.path, s.rel, s.score) for s in scored]
     else:
         ordered = [(p, r, None) for p, r in candidates]
@@ -71,11 +72,18 @@ def build_snapshot(
     included: list[str] = []
     skipped: list[str] = []
     for path, rel, score in ordered:
-        try:
-            content = path.read_text()
-        except (UnicodeDecodeError, OSError):
-            skipped.append(f"{rel} (unreadable)")
-            continue
+        if cache is not None:
+            cf = cache.get(path)
+            if not cf.readable:
+                skipped.append(f"{rel} (unreadable)")
+                continue
+            content = cf.text
+        else:
+            try:
+                content = path.read_text()
+            except (UnicodeDecodeError, OSError):
+                skipped.append(f"{rel} (unreadable)")
+                continue
         block = f"--- {rel} ---\n{content}\n"
         if used + len(block) > char_budget:
             if score is not None:
@@ -113,8 +121,9 @@ def snapshot_codebase(
     subtask: str = "",
     entries: list[dict] | None = None,
     strategy: str = "brute",
+    cache=None,
 ) -> str:
-    text, _ = build_snapshot(project_dir, char_budget, subtask, entries, strategy)
+    text, _ = build_snapshot(project_dir, char_budget, subtask, entries, strategy, cache=cache)
     return text
 
 

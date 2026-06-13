@@ -116,6 +116,7 @@ def score_files(
     files: list[tuple[Path, str]],  # (absolute, relative-str) content candidates
     subtask: str,
     recent_entries: list[dict],  # iteration log entries, oldest first
+    cache=None,  # optional FileCache (duck-typed: .get(path) -> CachedFile)
 ) -> list[ScoredFile]:
     sub_lower = subtask.lower()
     sub_tokens = _tokens(subtask)
@@ -141,17 +142,27 @@ def score_files(
         if rel in error_files:
             score += 8
         score += written_decay.get(rel, 0.0)
-        try:
-            content = path.read_text()
-        except (UnicodeDecodeError, OSError):
-            content = ""
-        score += min(2.0, len(sub_tokens & _tokens(content[:HEAD_CHARS])) * 0.25)
-        scored[rel] = ScoredFile(path=path, rel=rel, score=score, size=len(content))
+        if cache is not None:
+            cf = cache.get(path)
+            n_chars = cf.n_chars
+            head_tokens = cf.head_tokens
+        else:
+            try:
+                content = path.read_text()
+            except (UnicodeDecodeError, OSError):
+                content = ""
+            n_chars = len(content)
+            head_tokens = _tokens(content[:HEAD_CHARS])
+        score += min(2.0, len(sub_tokens & head_tokens) * 0.25)
+        scored[rel] = ScoredFile(path=path, rel=rel, score=score, size=n_chars)
 
     # import-graph neighbors of high-signal files (one hop, both directions)
     hot = mentioned | error_files
     if hot:
-        imports_by_rel = {rel: _import_names(path) for path, rel in files}
+        if cache is not None:
+            imports_by_rel = {rel: cache.get(path).import_names for path, rel in files}
+        else:
+            imports_by_rel = {rel: _import_names(path) for path, rel in files}
         hot_stems = {Path(r).stem for r in hot}
         hot_imports = {name for r in hot for name in imports_by_rel.get(r, set())}
         for _, rel in files:

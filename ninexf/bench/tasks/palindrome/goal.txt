@@ -1,0 +1,6 @@
+Implement src/palindrome.py with a function is_palindrome(s) that returns True
+if the string is a palindrome, ignoring case and any character that is not a
+letter or digit (so spaces and punctuation do not count). The empty string and
+a single character are palindromes.
+
+Example: is_palindrome("A man, a plan, a canal: Panama") -> True

@@ -1,0 +1,9 @@
+Implement src/lru_cache.py with a class LRUCache that implements a
+least-recently-used cache:
+
+  LRUCache(capacity)   create a cache holding at most `capacity` items
+  get(key)             return the value for key, or None if absent
+  put(key, value)      insert/update the value for key
+
+Both get and put count as "using" a key. When put would exceed capacity, evict
+the least-recently-used key first. Assume capacity >= 1.

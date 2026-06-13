@@ -15,7 +15,7 @@ from ninexf.config import PRESETS, Config, load_config, write_config
 from ninexf.contract import contract_for_prompt, save_contract
 from ninexf.dashboard import _run_status
 from ninexf.fitness import best_state, final_state, fitness_of
-from ninexf.loop import ExecOutcome, _repair_file_dump
+from ninexf.loop_common import ExecOutcome, _repair_file_dump
 from ninexf.models import DEFAULT_MODEL, GPT_OSS_20B_MODEL, model_options
 from ninexf.relevance import render_partial
 from ninexf.parser import parse_executor_output

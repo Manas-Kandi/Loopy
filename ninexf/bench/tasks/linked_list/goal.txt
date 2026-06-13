@@ -1,0 +1,8 @@
+Implement src/linked_list.py with a singly linked list class named LinkedList
+supporting:
+
+  append(value)   add a value to the end
+  to_list()       return the values as a Python list, in order
+  reverse()       reverse the list in place
+
+A new LinkedList is empty; to_list() returns [] for an empty list.

@@ -1,0 +1,8 @@
+Implement src/rpn.py with a function evaluate(expr) that evaluates a
+space-separated Reverse Polish Notation (postfix) expression and returns the
+result as a float. Support the binary operators + - * /.
+
+  evaluate("3 4 +")        -> 7.0
+  evaluate("5 1 2 + 4 * +") -> 17.0
+
+Raise ValueError on malformed input (unknown token, or too few/too many operands).

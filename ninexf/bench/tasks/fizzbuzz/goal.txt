@@ -1,0 +1,9 @@
+Implement src/fizzbuzz.py with a function fizzbuzz(n) that returns a list of n
+strings corresponding to the integers 1 through n:
+
+  - "Fizz" when the number is divisible by 3
+  - "Buzz" when divisible by 5
+  - "FizzBuzz" when divisible by both 3 and 5
+  - otherwise the number itself as a string
+
+fizzbuzz(0) returns an empty list.
