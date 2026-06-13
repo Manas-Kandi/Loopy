@@ -1,4 +1,4 @@
-# 9xf loops v0.9.1:
+# 9xf loops v1.0
 
 A research harness for autonomous, self-prompting coding loops. You give it a
 one-time goal; it then repeatedly reads its own codebase and history, generates
