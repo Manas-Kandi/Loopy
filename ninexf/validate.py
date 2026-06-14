@@ -354,6 +354,68 @@ def _has_visible_chart(probe: _HTMLProbe, source: str) -> bool:
     return visual_classes >= 3
 
 
+def _load_script_sources(project_dir: Path, assets: list[Path]) -> list[str]:
+    sources: list[str] = []
+    for asset in assets:
+        if asset.suffix.lower() not in {".js", ".mjs"}:
+            continue
+        try:
+            sources.append(asset.read_text())
+        except (OSError, UnicodeDecodeError):
+            continue
+    return sources
+
+
+def _js_defines_chart(js_sources: list[str]) -> bool:
+    for source in js_sources:
+        if re.search(r"\bclass\s+Chart\b", source):
+            return True
+        if re.search(r"\bfunction\s+Chart\b", source):
+            return True
+        if re.search(r"\b(?:const|let|var)\s+Chart\s*=", source):
+            return True
+        if re.search(r"(?:window|globalThis|self|this)\.Chart\s*=", source):
+            return True
+        if re.search(r"\bChart\s*=", source):
+            return True
+    return False
+
+
+def _js_uses_chart(js_sources: list[str]) -> bool:
+    return any(re.search(r"\bnew\s+Chart\s*\(", source) for source in js_sources)
+
+
+def _js_draws_canvas(js_sources: list[str]) -> bool:
+    drawing_terms = (
+        "lineTo(", "stroke(", "fillRect(", "arc(", "beginPath(", "moveTo(",
+        "bezierCurveTo(", "quadraticCurveTo(", "strokeText(", "fillText(",
+    )
+    for source in js_sources:
+        if "getContext(" not in source:
+            continue
+        if any(term in source for term in drawing_terms):
+            return True
+    return False
+
+
+def _canvas_runtime_issue(js_sources: list[str]) -> str:
+    if _js_uses_chart(js_sources) and not _js_defines_chart(js_sources):
+        return ("script code instantiates Chart(...) but no local chart library "
+                "or Chart implementation is loaded")
+    return ""
+
+
+def _has_canvas_chart_signal(probe: _HTMLProbe, js_sources: list[str]) -> bool:
+    tags = [tag for tag, _ in probe.tags]
+    if "canvas" not in tags:
+        return False
+    if _js_draws_canvas(js_sources):
+        return True
+    if _js_uses_chart(js_sources) and _js_defines_chart(js_sources):
+        return True
+    return False
+
+
 def _frontend_static_errors(
     project_dir: Path,
     written_files: list[Path],
@@ -420,6 +482,7 @@ def _frontend_static_errors(
             valid_stylesheets += 1
 
         script_srcs = []
+        script_assets: list[Path] = []
         for tag, attrs in probe.tags:
             if tag != "script":
                 continue
@@ -444,6 +507,22 @@ def _frontend_static_errors(
                     f"to an existing file ({target})",
                     final_only=True,
                 )
+                continue
+            script_assets.append(asset)
+
+        js_sources = _load_script_sources(project_dir, script_assets)
+        runtime_issue = _canvas_runtime_issue(js_sources)
+        if runtime_issue and (
+            any(tag == "canvas" for tag, _ in probe.tags)
+            or any(term in source.lower() for term in ("chart", "charts", "graph", "graphs"))
+        ):
+            _add_phase_issue(
+                errors,
+                warnings,
+                phase,
+                f"frontend_static: {rel}: {runtime_issue}",
+                final_only=False,
+            )
 
         visible_text = " ".join(probe.text_parts)
         dashboard_like = _has_dashboard_intent(html_file, source, visible_text)
@@ -491,7 +570,8 @@ def _frontend_static_errors(
                     final_only=True,
                 )
             chart_terms = any(term in source.lower() for term in ("chart", "charts", "graph", "graphs"))
-            if chart_terms and not _has_visible_chart(probe, source):
+            has_visible_chart = _has_visible_chart(probe, source) or _has_canvas_chart_signal(probe, js_sources)
+            if chart_terms and not has_visible_chart:
                 _add_phase_issue(
                     errors,
                     warnings,

@@ -6,6 +6,42 @@ from ninexf.loop_common import *  # noqa: F401,F403 - shared LoopRunner surface
 
 
 class PlanningMixin:
+    def _persistent_warning(self) -> str:
+        entries = [e for e in read_entries(self.project_dir) if e.get("event") == "iteration"]
+        recent = entries[-3:]
+        if len(recent) < 3:
+            return ""
+        warnings = []
+        for entry in recent:
+            if not entry.get("validation_passed"):
+                return ""
+            vw = entry.get("validation_warnings") or []
+            if not vw:
+                return ""
+            warnings.append(vw[0].strip())
+        return warnings[-1] if len(set(warnings)) == 1 else ""
+
+    def _ensure_post_verify_task(self) -> None:
+        tl = load_tasks(self.project_dir)
+        if tl.open_tasks() or self._verify_attempts() < self.config.max_verify_attempts:
+            return
+        verifications = [e for e in read_entries(self.project_dir) if e.get("event") == "verify"]
+        if not verifications:
+            return
+        last = verifications[-1]
+        if last.get("validation_passed") and not last.get("errors"):
+            return
+        corrective: list[str] = []
+        if last.get("errors"):
+            corrective.append("Fix validation failures: " + "; ".join(last["errors"])[:300])
+        if last.get("acceptance_passed") is False:
+            corrective.append(
+                "Fix the failing held-out acceptance tests "
+                "(run via the acceptance criteria — the suite itself is read-only)"
+            )
+        if corrective:
+            append_tasks(self.project_dir, corrective)
+
     def _rate_limit_active(self) -> bool:
         entries = read_entries(self.project_dir)
         recent = entries[-6:]
@@ -31,6 +67,7 @@ class PlanningMixin:
         return bool(task and task_is_corrective(task))
 
     def _pick_mode(self, iteration: int) -> str:
+        self._ensure_post_verify_task()
         tl = load_tasks(self.project_dir)
         if tl.all_resolved() and self._verify_attempts() < self.config.max_verify_attempts:
             return "verify_done"
@@ -38,6 +75,8 @@ class PlanningMixin:
             return "verify_done"
         prev = [e for e in read_entries(self.project_dir) if e.get("event") == "iteration"]
         if prev and not prev[-1].get("validation_passed"):
+            return "fix"
+        if self._persistent_warning():
             return "fix"
         if (not self._rate_limit_active()
                 and self.config.review_every > 0

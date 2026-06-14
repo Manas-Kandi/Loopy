@@ -205,6 +205,8 @@ def history_for_context(project_dir: Path, max_entries: int) -> str:
         )
         if e.get("errors"):
             lines.append(f"    errors: {json.dumps(e['errors'])[:300]}")
+        if e.get("validation_warnings"):
+            lines.append(f"    warnings: {json.dumps(e['validation_warnings'])[:300]}")
         for tr in e.get("tool_runs", []):
             lines.append(
                 f"    tool {tr.get('name')} {tr.get('args', '')}: {tr.get('result', '')[:300]}"

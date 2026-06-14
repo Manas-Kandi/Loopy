@@ -60,6 +60,7 @@ from ninexf.tasks import (
     parse_decomposition, parse_task_ref, parse_task_ref_num, parse_verify_output,
     parse_task_refs, infer_task_ids_for_files,
     task_has_file_evidence, task_is_corrective, task_needs_model_check,
+    corrective_task_resolved,
     sanitize_decomposition, save_criteria, save_tasks, strip_task_ref,
     fallback_decomposition,
     tasks_for_prompt, tasks_path, append_tasks,

@@ -84,6 +84,7 @@ class ReflectionMixin:
                     files=", ".join(files_written) or "(none)",
                     validation_passed=validation_passed,
                     validation_detail=outcome.validation_detail,
+                    validation_warnings="; ".join(outcome.validation_warnings) or "(none)",
                     errors="; ".join(str(e) for e in errors)[:1200] or "(none)",
                     parse_warnings="; ".join(outcome.parse_warnings) or "(none)",
                     regression=regression,

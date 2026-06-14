@@ -408,8 +408,13 @@ def append_tasks(project_dir: Path, texts: list[str]) -> list[int]:
     tl = load_tasks(project_dir)
     nums = []
     for text in texts:
+        clean = text.strip()
+        existing = next((t for t in tl.tasks if t.open and t.text.strip() == clean), None)
+        if existing is not None:
+            nums.append(existing.num)
+            continue
         num = tl.next_num()
-        tl.tasks.append(Task(num=num, text=text))
+        tl.tasks.append(Task(num=num, text=clean))
         nums.append(num)
     save_tasks(project_dir, tl)
     return nums
@@ -539,6 +544,16 @@ def infer_task_ids_for_files(tl: TaskList, written_rel: list[str]) -> list[int]:
     return candidates
 
 
+def task_named_files(task: Task | None, subtask: str = "") -> set[str]:
+    if task is None:
+        return set()
+    haystack = f"{task.text}\n{subtask}".lower()
+    return {
+        match.rstrip(".,:;)]}'\"`")
+        for match in re.findall(r"\b(?:src|tests|tools)/[A-Za-z0-9_./-]+", haystack)
+    }
+
+
 def task_has_file_evidence(task: Task | None, written_rel: list[str], subtask: str = "") -> bool:
     """True when this successful attempt wrote a file named by the task/slice.
 
@@ -548,20 +563,17 @@ def task_has_file_evidence(task: Task | None, written_rel: list[str], subtask: s
     """
     if task is None or not written_rel:
         return False
-    haystack = f"{task.text}\n{subtask}".lower()
-    mentioned = set()
-    for match in re.findall(r"\b(?:src|tests|tools)/[A-Za-z0-9_./-]+", haystack):
-        mentioned.add(match.rstrip(".,:;)]}'\"`"))
+    mentioned = task_named_files(task, subtask)
     if not mentioned:
         return True
-    return any(rel.lower() in mentioned for rel in written_rel if rel)
+    written = {rel.lower() for rel in written_rel if rel}
+    if len(mentioned) == 1:
+        return bool(written & mentioned)
+    return mentioned.issubset(written)
 
 
 def task_mentions_concrete_file(task: Task | None, subtask: str = "") -> bool:
-    if task is None:
-        return False
-    haystack = f"{task.text}\n{subtask}".lower()
-    return bool(re.search(r"\b(?:src|tests|tools)/[A-Za-z0-9_./-]+", haystack))
+    return bool(task_named_files(task, subtask))
 
 
 def task_is_corrective(task: Task | None) -> bool:
@@ -582,9 +594,35 @@ def task_needs_model_check(task: Task | None, written_rel: list[str], subtask: s
         return True
     if task_mentions_concrete_file(task, subtask):
         return False
-    if task_is_corrective(task):
-        return False
     return True
+
+
+def corrective_task_resolved(
+    task: Task | None,
+    validation_errors: list[str],
+    validation_warnings: list[str],
+    acceptance_passed: bool | None = None,
+) -> bool | None:
+    """Deterministic completion for known corrective task kinds.
+
+    Returns True/False when the harness can tell if the issue is resolved, or
+    None when a model check is still needed.
+    """
+    if task is None or not task_is_corrective(task):
+        return None
+    lowered = task.text.strip().lower()
+    evidence = " ".join([*(e.lower() for e in validation_errors),
+                         *(w.lower() for w in validation_warnings)])
+    if lowered.startswith("fix validation failures:"):
+        target = task.text.split(":", 1)[1].strip().lower()
+        if not target:
+            return None
+        return target not in evidence
+    if lowered.startswith("fix the failing held-out acceptance tests"):
+        return acceptance_passed is True
+    if lowered.startswith("fix acceptance criterion"):
+        return None
+    return None
 
 
 VERDICT_PASS_RE = re.compile(r"^[\s\-*]*PASS:?\s*C?(?P<num>\d+)", re.IGNORECASE)

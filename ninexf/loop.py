@@ -259,6 +259,18 @@ class LoopRunner(
                     task = current_tasks.get(tid)
                     if not task_has_file_evidence(task, files_written_rel, subtask):
                         continue
+                    resolved = corrective_task_resolved(
+                        task,
+                        errors,
+                        outcome.validation_warnings,
+                        acceptance_passed,
+                    )
+                    if resolved is True:
+                        mark_status(self.project_dir, tid, STATUS_DONE)
+                        logger.info(f"[9xf]   task T{tid} marked done")
+                        continue
+                    if resolved is False:
+                        continue
                     if not task_needs_model_check(task, files_written_rel, subtask):
                         mark_status(self.project_dir, tid, STATUS_DONE)
                         logger.info(f"[9xf]   task T{tid} marked done")

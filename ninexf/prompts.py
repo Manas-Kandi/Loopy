@@ -74,8 +74,10 @@ when you are clearly refining the product rather than repeating a failed move.""
 
 MODE_FIX = """
 THIS IS A FIX ITERATION: the previous iteration FAILED validation (see the
-errors in the history above). Your next step must address that failure before
-any new feature work."""
+errors in the history above) or the same product warning has persisted across
+multiple green iterations. Your next step must address that concrete validation
+problem before any new feature work. Do not merely restate that the UI was
+refined; make the smallest change that would alter the validation evidence."""
 
 MODE_REVIEW = """
 THIS IS A REVIEW ITERATION: do not add new features. Instead, inspect the
@@ -170,6 +172,7 @@ summary: {summary}
 files_written: {files}
 validation_passed: {validation_passed}
 validation_detail: {validation_detail}
+validation_warnings: {validation_warnings}
 errors: {errors}
 parse_warnings: {parse_warnings}
 regression: {regression}
@@ -180,7 +183,8 @@ EXISTING NOTES:
 {notes}
 
 Extract only NEW, actionable guidance that would improve the next planner or
-executor prompt. Prefer concrete refinement habits over broad slogans."""
+executor prompt. Prefer concrete refinement habits over broad slogans. Do not
+claim a warning or error is fixed if the same validation evidence still appears."""
 
 EXPLORE_NUDGE_A = """
 THE LOOP IS HARD-STUCK: recent iterations keep failing the same way and a

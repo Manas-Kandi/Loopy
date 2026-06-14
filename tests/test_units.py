@@ -35,6 +35,7 @@ from ninexf.tasks import (
     save_tasks, strip_task_ref, tasks_for_prompt, infer_task_ids_for_files,
     fallback_decomposition,
     task_has_file_evidence, task_is_corrective, task_needs_model_check,
+    corrective_task_resolved, append_tasks,
 )
 from ninexf.tools import tool_result_failed
 from ninexf.validate import validate
@@ -112,6 +113,16 @@ class TestTasks(unittest.TestCase):
             task, ["src/feature.py"], "TASK T2: Add the feature module in src/feature.py."))
         self.assertFalse(task_has_file_evidence(
             task, ["src/main.py"], "TASK T2: Add the feature module in src/feature.py."))
+        self.assertFalse(task_has_file_evidence(
+            Task(4, "Refine src/index.html, src/styles.css, and src/script.js."),
+            ["src/index.html"],
+            "TASK T4: Refine src/index.html, src/styles.css, and src/script.js.",
+        ))
+        self.assertTrue(task_has_file_evidence(
+            Task(4, "Refine src/index.html, src/styles.css, and src/script.js."),
+            ["src/index.html", "src/styles.css", "src/script.js"],
+            "TASK T4: Refine src/index.html, src/styles.css, and src/script.js.",
+        ))
         self.assertTrue(task_has_file_evidence(
             Task(3, "Fix the acceptance assertion."), ["tests/test_main.py"],
             "TASK T3: Fix the acceptance assertion."))
@@ -137,6 +148,26 @@ class TestTasks(unittest.TestCase):
         self.assertTrue(task_is_corrective(Task(6, "Fix validation failures: compile-check")))
         self.assertTrue(task_is_corrective(Task(7, "Fix acceptance criterion C1 (something)")))
         self.assertFalse(task_is_corrective(Task(2, "Create src/main.py")))
+
+    def test_corrective_task_resolution_uses_current_validation_evidence(self):
+        task = Task(6, "Fix validation failures: frontend_static: src/index.html: chart/graph language is present but no visible chart marks")
+        self.assertFalse(corrective_task_resolved(
+            task,
+            [],
+            ["frontend_static: src/index.html: chart/graph language is present but no visible chart marks"],
+        ))
+        self.assertTrue(corrective_task_resolved(
+            task,
+            [],
+            ["product_warning: frontend_static: src/index.html: script src 'script.js' does not resolve"],
+        ))
+
+    def test_append_tasks_dedupes_open_task_text(self):
+        d = Path(tempfile.mkdtemp())
+        save_tasks(d, TaskList(tasks=[Task(1, "Fix validation failures: x", "~")]))
+        nums = append_tasks(d, ["Fix validation failures: x"])
+        self.assertEqual(nums, [1])
+        self.assertEqual(len(load_tasks(d).tasks), 1)
 
     def test_sanitize_bad_decomposition(self):
         tasks, criteria, rejected = sanitize_decomposition(
@@ -293,6 +324,21 @@ class TestStuck(unittest.TestCase):
         entries = [self._iter(f"s{i}", passed=False, errors=errs) for i in range(3)]
         sig = {s.kind for s in detect_signals("different step entirely", entries, 0.85)}
         self.assertIn("same_error", sig)
+
+    def test_same_warning_signal(self):
+        entries = [
+            {"event": "iteration", "subtask": "a", "validation_passed": True,
+             "validation_warnings": ["product_warning: frontend_static: no visible chart marks"],
+             "files_written": ["src/index.html"]},
+            {"event": "iteration", "subtask": "b", "validation_passed": True,
+             "validation_warnings": ["product_warning: frontend_static: no visible chart marks"],
+             "files_written": ["src/styles.css"]},
+            {"event": "iteration", "subtask": "c", "validation_passed": True,
+             "validation_warnings": ["product_warning: frontend_static: no visible chart marks"],
+             "files_written": ["src/script.js"]},
+        ]
+        sig = {s.kind for s in detect_signals("fix chart marks", entries, 0.85)}
+        self.assertIn("same_warning", sig)
 
 
 class TestBackendAndStatus(unittest.TestCase):
@@ -765,6 +811,46 @@ class TestValidationEvidence(unittest.TestCase):
         result = validate(d, [html], timeout=5, allow_network=True, phase="build")
         self.assertFalse(result.passed)
         self.assertIn("empty placeholders", "\n".join(result.errors))
+
+    def test_final_validation_accepts_canvas_chart_with_local_drawing_code(self):
+        d = Path(tempfile.mkdtemp())
+        (d / "src").mkdir()
+        html = d / "src" / "index.html"
+        css = d / "src" / "styles.css"
+        js = d / "src" / "script.js"
+        html.write_text(
+            "<!doctype html><html><head><link rel='stylesheet' href='styles.css'></head>"
+            "<body><main class='dashboard'><div>$120K</div><div>42%</div><div>8,901</div>"
+            "<canvas id='chart'></canvas><script src='script.js'></script></main></body></html>"
+        )
+        css.write_text("body{font-family:Arial}.dashboard{display:grid}\n")
+        js.write_text(
+            "const ctx = document.getElementById('chart').getContext('2d');\n"
+            "ctx.beginPath();\nctx.moveTo(0, 50);\nctx.lineTo(50, 10);\nctx.stroke();\n"
+        )
+        result = validate(d, [html, css, js], timeout=5, allow_network=True, phase="final")
+        self.assertTrue(result.passed, result.errors)
+
+    def test_chartjs_without_loaded_library_fails_validation(self):
+        d = Path(tempfile.mkdtemp())
+        (d / "src").mkdir()
+        html = d / "src" / "index.html"
+        css = d / "src" / "styles.css"
+        js = d / "src" / "script.js"
+        html.write_text(
+            "<!doctype html><html><head><link rel='stylesheet' href='styles.css'></head>"
+            "<body><main class='dashboard'><div>$120K</div><div>42%</div><div>8,901</div>"
+            "<canvas id='chart'></canvas><script src='script.js'></script></main></body></html>"
+        )
+        css.write_text("body{font-family:Arial}.dashboard{display:grid}\n")
+        js.write_text(
+            "const ctx = document.getElementById('chart').getContext('2d');\n"
+            "new Chart(ctx, {type:'line', data:{labels:['Jan'], datasets:[{data:[1]}]}});\n"
+        )
+        result = validate(d, [html, css, js], timeout=5, allow_network=True, phase="final")
+        self.assertFalse(result.passed)
+        self.assertEqual(result.failure_kind, "frontend_static")
+        self.assertIn("instantiates Chart", "\n".join(result.errors))
 
 
 class TestRepairEvidence(unittest.TestCase):
