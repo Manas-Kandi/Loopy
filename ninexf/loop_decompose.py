@@ -22,22 +22,29 @@ class DecomposeMixin:
                     subtask="(decomposing goal)", ts=now_iso())
         append_activity(self.project_dir, "asking model to decompose the goal",
                         iteration=iteration, kind="model")
-        raw = self._complete("decompose", DECOMPOSE_SYSTEM, DECOMPOSE_USER.format(goal=self.goal))
-        append_activity(self.project_dir, "parsing decomposition output",
-                        iteration=iteration)
-        task_texts, criteria = parse_decomposition(raw)
-        task_texts, criteria, rejections = sanitize_decomposition(
-            self.goal, task_texts, criteria)
-        if rejections and len(task_texts) < 2:
-            retry_user = DECOMPOSE_USER.format(goal=self.goal) + DECOMPOSE_RETRY_NOTE.format(
-                rejections="\n".join(f"- {r}" for r in rejections[:8]))
-            raw = self._complete("decompose_retry", DECOMPOSE_SYSTEM, retry_user)
-            retry_tasks, retry_criteria = parse_decomposition(raw)
-            task_texts, criteria, retry_rejections = sanitize_decomposition(
-                self.goal, retry_tasks, retry_criteria)
-            rejections.extend(retry_rejections)
-
+        rejections: list[str] = []
         errors: list[str] = []
+        try:
+            raw = self._complete("decompose", DECOMPOSE_SYSTEM, DECOMPOSE_USER.format(goal=self.goal))
+            append_activity(self.project_dir, "parsing decomposition output",
+                            iteration=iteration)
+            task_texts, criteria = parse_decomposition(raw)
+            task_texts, criteria, rejections = sanitize_decomposition(
+                self.goal, task_texts, criteria)
+            if rejections and len(task_texts) < 2:
+                retry_user = DECOMPOSE_USER.format(goal=self.goal) + DECOMPOSE_RETRY_NOTE.format(
+                    rejections="\n".join(f"- {r}" for r in rejections[:8]))
+                raw = self._complete("decompose_retry", DECOMPOSE_SYSTEM, retry_user)
+                retry_tasks, retry_criteria = parse_decomposition(raw)
+                task_texts, criteria, retry_rejections = sanitize_decomposition(
+                    self.goal, retry_tasks, retry_criteria)
+                rejections.extend(retry_rejections)
+        except BackendError as e:
+            if not getattr(e, "retryable", True):
+                raise
+            task_texts, criteria = [], []
+            errors.append(f"decomposition backend failed; used fallback roadmap: {e}")
+
         if rejections:
             errors.extend(f"decomposition rejected {r}" for r in rejections[:8])
         if len(task_texts) < 2:

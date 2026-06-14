@@ -16,9 +16,16 @@ from ninexf.config import DEFAULTS, NVIDIA_ENDPOINT, Config
 
 
 class BackendError(Exception):
-    def __init__(self, message: str, *, retryable: bool = True):
+    def __init__(
+        self,
+        message: str,
+        *,
+        retryable: bool = True,
+        retry_after: float | None = None,
+    ):
         super().__init__(message)
         self.retryable = retryable
+        self.retry_after = retry_after
 
 
 def is_rate_limit_error(err: Exception | str) -> bool:
@@ -76,6 +83,15 @@ def _post_json(url: str, payload: dict, headers: dict, timeout: float = 300) -> 
         if e.code in {401, 403}:
             message += " (check the provider API key and model access)"
             raise BackendError(message, retryable=False) from e
+        if e.code == 429:
+            retry_after = None
+            raw_retry_after = e.headers.get("Retry-After") if e.headers else None
+            if raw_retry_after:
+                try:
+                    retry_after = max(0.0, float(raw_retry_after))
+                except ValueError:
+                    retry_after = None
+            raise BackendError(message, retry_after=retry_after) from e
         raise BackendError(message) from e
     except urllib.error.URLError as e:
         raise BackendError(f"cannot reach {url}: {e.reason}") from e
@@ -231,8 +247,6 @@ class NvidiaBackend(Backend):
             "top_p": self.top_p,
             "stream": False,
         }
-        if self.model.startswith("google/gemma-"):
-            payload["chat_template_kwargs"] = {"enable_thinking": True}
         data = _post_json(
             f"{self.endpoint}/chat/completions",
             payload,

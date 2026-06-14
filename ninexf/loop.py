@@ -436,6 +436,8 @@ class LoopRunner(
 
         backend_failures = 0
         iteration = start
+        retry_after: float | None = None
+        rate_limited = False
         while iteration - start < cap:
             reason = self._stop_requested()
             if reason:
@@ -447,6 +449,8 @@ class LoopRunner(
 
             iteration += 1
             try:
+                retry_after = None
+                rate_limited = False
                 entry = self.run_iteration(iteration)
                 backend_failures = 0
                 if entry.event == "iteration":
@@ -460,6 +464,8 @@ class LoopRunner(
                     return
             except BackendError as e:
                 backend_failures += 1
+                retry_after = getattr(e, "retry_after", None)
+                rate_limited = is_rate_limit_error(e)
                 if getattr(e, "retryable", True):
                     logger.info(f"[9xf] iter {iteration} backend error ({backend_failures}/"
                           f"{MAX_CONSECUTIVE_BACKEND_FAILURES}): {e}")
@@ -490,8 +496,14 @@ class LoopRunner(
                 return
             if iteration - start < cap:
                 pause = sleep_s
+                if retry_after is not None:
+                    pause = max(pause, float(retry_after))
+                elif rate_limited:
+                    pause = max(pause, min(300.0, 60.0 * max(1, backend_failures)))
                 if deadline is not None:
                     pause = min(pause, max(0.0, deadline - time.monotonic()))
+                retry_after = None
+                rate_limited = False
                 time.sleep(pause)
 
         self._clean_shutdown(iteration, f"iteration cap reached ({cap})")

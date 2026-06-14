@@ -28,7 +28,7 @@ from ninexf.apppage import APP_PAGE
 from ninexf.config import load_config
 from ninexf.dashboard import _run_status, collect_runs
 from ninexf.looplog import read_entries
-from ninexf.registry import read_state
+from ninexf.registry import read_state, registered_runs
 from ninexf.tasks import load_tasks
 
 COMMIT_RE = re.compile(r"^[0-9a-f]{6,40}$")
@@ -408,6 +408,30 @@ def is_running(d: Path) -> bool:
     return bool(state.get("running")) and _pid_alive(state.get("pid", -1))
 
 
+def _nvidia_model_for_run(d: Path) -> str:
+    try:
+        cfg = load_config(d)
+    except Exception:
+        return ""
+    return cfg.model if cfg.model.startswith("nvidia/") else ""
+
+
+def active_nvidia_run(except_dir: Path | None = None) -> Path | None:
+    except_resolved = except_dir.resolve() if except_dir else None
+    for other in registered_runs():
+        try:
+            other_resolved = other.resolve()
+        except OSError:
+            other_resolved = other
+        if except_resolved is not None and other_resolved == except_resolved:
+            continue
+        if not is_running(other):
+            continue
+        if _nvidia_model_for_run(other):
+            return other
+    return None
+
+
 def start_run(payload: dict) -> dict:
     d = Path(str(payload.get("dir", "")).strip()).expanduser()
     if not str(d) or not d.is_absolute():
@@ -424,6 +448,10 @@ def start_run(payload: dict) -> dict:
             return {"error": str(e)}
     if is_running(d):
         return {"error": "this run is already going"}
+    if _nvidia_model_for_run(d):
+        active = active_nvidia_run(except_dir=d)
+        if active is not None:
+            return {"error": f"another NVIDIA-backed run is already active: {active}"}
     if (d / STOP_FILENAME).exists():
         (d / STOP_FILENAME).unlink()
 

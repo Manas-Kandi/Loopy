@@ -35,7 +35,7 @@ from ninexf.parser import parse_executor_output
 from ninexf.prompts import DECOMPOSE_USER, EXECUTOR_SYSTEM, PLANNER_SYSTEM, REPAIR_NOTE
 from ninexf.relevance import score_files
 from ninexf.stuck import detect_signals, normalize_error
-from ninexf.webapp import DIAGNOSTIC_BUNDLE_FILENAME, export_diagnostic_bundle
+from ninexf.webapp import DIAGNOSTIC_BUNDLE_FILENAME, export_diagnostic_bundle, start_run
 from ninexf.tasks import (
     Task, TaskList, load_tasks, parse_decomposition, parse_task_ref,
     parse_task_ref_num, parse_task_refs, parse_verify_output, sanitize_decomposition,
@@ -396,6 +396,20 @@ class TestBackendAndStatus(unittest.TestCase):
                 _post_json("https://integrate.api.nvidia.com/v1/chat/completions", {}, {})
         self.assertFalse(cm.exception.retryable)
 
+    def test_post_json_rate_limit_carries_retry_after(self):
+        http_error = urllib.error.HTTPError(
+            "https://integrate.api.nvidia.com/v1/chat/completions",
+            429,
+            "Too Many Requests",
+            {"Retry-After": "42"},
+            io.BytesIO(b'{"status":429,"title":"Too Many Requests"}'),
+        )
+        with mock.patch("urllib.request.urlopen", side_effect=http_error):
+            with self.assertRaisesRegex(BackendError, "HTTP 429") as cm:
+                _post_json("https://integrate.api.nvidia.com/v1/chat/completions", {}, {})
+        self.assertTrue(cm.exception.retryable)
+        self.assertEqual(cm.exception.retry_after, 42)
+
     def test_ollama_backend_uses_configured_timeout(self):
         cfg = Config(model="ollama/test:latest", backend_timeout=123)
         backend = OllamaBackend(cfg)
@@ -429,7 +443,7 @@ class TestBackendAndStatus(unittest.TestCase):
         self.assertEqual(payload["max_tokens"], 16384)
         self.assertEqual(post.call_args.kwargs["timeout"], 123)
 
-    def test_nvidia_gemma_payload_uses_single_user_message_and_thinking_flag(self):
+    def test_nvidia_gemma_payload_uses_single_user_message_without_thinking_flag(self):
         cfg = Config(
             model=NVIDIA_GEMMA_MODEL,
             temperature=1.0,
@@ -449,7 +463,7 @@ class TestBackendAndStatus(unittest.TestCase):
         payload = post.call_args.args[1]
         self.assertEqual(payload["model"], "google/gemma-4-31b-it")
         self.assertEqual(payload["max_tokens"], 2048)
-        self.assertEqual(payload["chat_template_kwargs"], {"enable_thinking": True})
+        self.assertNotIn("chat_template_kwargs", payload)
         self.assertEqual(len(payload["messages"]), 1)
         self.assertEqual(payload["messages"][0]["role"], "user")
         self.assertIn("system instructions", payload["messages"][0]["content"])
@@ -634,6 +648,24 @@ class TestPhaseTokenCaps(unittest.TestCase):
         self.assertEqual(runner._max_tokens_for_purpose("planner"), 600)
         self.assertEqual(runner._max_tokens_for_purpose("executor"), 600)
 
+
+class TestDecomposeFallback(unittest.TestCase):
+    def test_retryable_backend_error_installs_fallback_decomposition(self):
+        from ninexf.loop import LoopRunner
+        d = Path(tempfile.mkdtemp())
+        (d / "goal.txt").write_text("well designed dashboard")
+        cfg = Config(model="mock")
+        runner = LoopRunner(d, cfg)
+        runner._complete = mock.Mock(side_effect=BackendError("timeout calling nvidia"))
+        with mock.patch("ninexf.loop_decompose.has_changes", return_value=False):
+            entry = runner._run_decompose(1)
+        self.assertEqual(entry.event, "decompose")
+        self.assertIn("fallback roadmap", entry.summary)
+        self.assertTrue((d / "TASKS.md").exists())
+        self.assertTrue((d / "ACCEPTANCE.md").exists())
+        self.assertTrue((d / "CONTRACT.md").exists())
+        self.assertTrue(any("backend failed" in e for e in entry.errors))
+
     def test_default_control_mode_is_hybrid(self):
         self.assertEqual(Config().control_mode, "hybrid")
 
@@ -660,6 +692,25 @@ class TestPhaseTokenCaps(unittest.TestCase):
         cfg = load_config(d)
         self.assertEqual(cfg.api_key_env, "NVIDIA_API_KEY")
         self.assertEqual(cfg.endpoint, "https://integrate.api.nvidia.com/v1")
+
+    def test_start_run_blocks_second_active_nvidia_run(self):
+        active = Path(tempfile.mkdtemp())
+        target = Path(tempfile.mkdtemp())
+        (active / "goal.txt").write_text("active")
+        (target / "goal.txt").write_text("target")
+        write_config(active, {"model": NVIDIA_KIMI_MODEL})
+        write_config(target, {"model": NVIDIA_GEMMA_MODEL})
+
+        def running_only_active(path: Path) -> bool:
+            return path == active
+
+        with mock.patch("ninexf.webapp.registered_runs", return_value=[active]), \
+                mock.patch("ninexf.webapp.is_running", side_effect=running_only_active), \
+                mock.patch("ninexf.webapp.subprocess.Popen") as popen:
+            result = start_run({"dir": str(target), "goal": "target"})
+
+        self.assertIn("another NVIDIA-backed run is already active", result["error"])
+        popen.assert_not_called()
 
     def test_presets_only_use_known_keys(self):
         from ninexf.config import DEFAULTS
