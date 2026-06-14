@@ -277,9 +277,9 @@ def fallback_decomposition(goal: str) -> tuple[list[str], list[str]]:
             [
                 "Create src/index.html with a complete first-screen dashboard using real sample metric values and the main UI structure.",
                 "Create src/styles.css with a polished responsive layout, visual hierarchy, and styled metric/chart regions.",
-                "Create src/script.js to render the dashboard behavior and any chart/graph output using self-contained sample data.",
+                "Create src/script.js to render the dashboard behavior and any chart/graph output using self-contained sample data and local visual primitives.",
                 "Refine the existing src/index.html, src/styles.css, and src/script.js files to improve clarity, density, copy, spacing, and interactions without adding off-goal infrastructure.",
-                "Verify the dashboard is self-contained, offline-friendly, and free of broken local asset/runtime references; fix any remaining validation issues.",
+                "Fix any harness-reported validation blockers in the existing dashboard files until the final artifact is self-contained, offline-friendly, and visually complete.",
             ],
             [
                 "Opening src/index.html shows a complete dashboard first screen with at least three visible metric values based on sample data.",
@@ -418,6 +418,18 @@ def append_tasks(project_dir: Path, texts: list[str]) -> list[int]:
         nums.append(num)
     save_tasks(project_dir, tl)
     return nums
+
+
+def canonical_validation_task(error: str, failure_kind: str = "") -> str:
+    text = error.strip()
+    if text.startswith("frontend_static:"):
+        body = text.split(":", 1)[1].strip()
+        parts = [p.strip() for p in body.split(":", 1)]
+        if len(parts) == 2:
+            rel, issue = parts
+            return f"Resolve blocker frontend_static in {rel}: {issue}"
+    kind = failure_kind.strip() or "validation"
+    return f"Resolve blocker {kind}: {text}"
 
 
 def tasks_for_prompt(project_dir: Path, control_mode: str = "strict") -> str:
@@ -581,7 +593,8 @@ def task_is_corrective(task: Task | None) -> bool:
         return False
     text = task.text.strip().lower()
     return (
-        text.startswith("fix validation failures")
+        text.startswith("resolve blocker ")
+        or text.startswith("fix validation failures")
         or text.startswith("fix acceptance criterion")
         or text.startswith("fix the failing held-out acceptance tests")
         or text.startswith("fix ")
@@ -613,6 +626,11 @@ def corrective_task_resolved(
     lowered = task.text.strip().lower()
     evidence = " ".join([*(e.lower() for e in validation_errors),
                          *(w.lower() for w in validation_warnings)])
+    if lowered.startswith("resolve blocker "):
+        target = task.text.split(":", 1)[1].strip().lower() if ":" in task.text else ""
+        if not target:
+            return None
+        return target not in evidence
     if lowered.startswith("fix validation failures:"):
         target = task.text.split(":", 1)[1].strip().lower()
         if not target:

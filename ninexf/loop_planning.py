@@ -6,6 +6,26 @@ from ninexf.loop_common import *  # noqa: F401,F403 - shared LoopRunner surface
 
 
 class PlanningMixin:
+    def _current_blocker(self) -> str:
+        entries = read_entries(self.project_dir)
+        iterations = [e for e in entries if e.get("event") == "iteration"]
+        recent_warning = self._persistent_warning()
+        if recent_warning:
+            count = 0
+            for entry in reversed(iterations):
+                warnings = entry.get("validation_warnings") or []
+                if entry.get("validation_passed") and warnings and warnings[0].strip() == recent_warning:
+                    count += 1
+                    continue
+                break
+            return f"warning repeated for {count} green iteration(s): {recent_warning}"
+        for entry in reversed(entries):
+            if entry.get("event") == "verify" and entry.get("errors"):
+                return "verify failed with: " + " | ".join(entry["errors"][:2])
+            if entry.get("event") == "iteration" and not entry.get("validation_passed") and entry.get("errors"):
+                return "iteration failed with: " + " | ".join(entry["errors"][:2])
+        return ""
+
     def _persistent_warning(self) -> str:
         entries = [e for e in read_entries(self.project_dir) if e.get("event") == "iteration"]
         recent = entries[-3:]
@@ -33,7 +53,10 @@ class PlanningMixin:
             return
         corrective: list[str] = []
         if last.get("errors"):
-            corrective.append("Fix validation failures: " + "; ".join(last["errors"])[:300])
+            corrective.append(canonical_validation_task(
+                str(last["errors"][0]),
+                str(last.get("failure_kind") or ""),
+            ))
         if last.get("acceptance_passed") is False:
             corrective.append(
                 "Fix the failing held-out acceptance tests "
@@ -98,6 +121,8 @@ class PlanningMixin:
         tasks_section = TASKS_SECTION.format(tasks=tasks) if tasks else ""
         contract = contract_for_prompt(self.project_dir)
         contract_section = CONTRACT_SECTION.format(contract=contract) if contract else ""
+        blocker = self._current_blocker()
+        blocker_section = BLOCKER_SECTION.format(blocker=blocker) if blocker else ""
         notes = notes_for_prompt(self.project_dir) if self.config.notes_enabled else ""
         notes_section = NOTES_SECTION.format(notes=notes) if notes else ""
         entries = [e for e in read_entries(self.project_dir) if e.get("event") == "iteration"]
@@ -108,6 +133,7 @@ class PlanningMixin:
             goal=self.goal, codebase=codebase, history=history,
             tools=tools, mode_instructions=mode_instructions,
             contract_section=contract_section,
+            blocker_section=blocker_section,
             tasks_section=tasks_section, notes_section=notes_section,
             changes_section=changes_section,
         )

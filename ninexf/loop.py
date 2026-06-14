@@ -300,6 +300,16 @@ class LoopRunner(
             if len(parsed.notes) > len(agent_notes):
                 errors.append(f"{len(parsed.notes) - len(agent_notes)} note(s) dropped "
                               f"(cap {cfg.max_notes_per_iteration})")
+            contradicted = [
+                note for note in agent_notes
+                if note_contradicted(note, errors, outcome.validation_warnings)
+            ]
+            if contradicted:
+                agent_notes = [n for n in agent_notes if n not in contradicted]
+                soft_errors.extend(
+                    f"note dropped as contradicted by current validation evidence: {note[:120]}"
+                    for note in contradicted
+                )
             harness_notes = []
             if regression:
                 harness_notes.append(
@@ -329,6 +339,10 @@ class LoopRunner(
                     codebase=exec_codebase,
                     history=history,
                 )
+                reflection_notes = [
+                    note for note in reflection_notes
+                    if not note_contradicted(note, errors, outcome.validation_warnings)
+                ]
             notes_added = append_notes(
                 self.project_dir, iteration, agent_notes + harness_notes,
                 cfg.notes_max_lines)

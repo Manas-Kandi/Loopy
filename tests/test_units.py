@@ -21,7 +21,7 @@ from ninexf.config import PRESETS, Config, load_config, load_dotenv, write_confi
 from ninexf.contract import contract_for_prompt, save_contract
 from ninexf.dashboard import _run_status
 from ninexf.fitness import best_state, final_state, fitness_of
-from ninexf.loop_common import ExecOutcome, _repair_file_dump
+from ninexf.loop_common import ExecOutcome, _repair_file_dump, note_contradicted
 from ninexf.models import DEFAULT_MODEL, GPT_OSS_20B_MODEL, NVIDIA_KIMI_MODEL, model_options
 from ninexf.relevance import render_partial
 from ninexf.parser import parse_executor_output
@@ -35,7 +35,7 @@ from ninexf.tasks import (
     save_tasks, strip_task_ref, tasks_for_prompt, infer_task_ids_for_files,
     fallback_decomposition,
     task_has_file_evidence, task_is_corrective, task_needs_model_check,
-    corrective_task_resolved, append_tasks,
+    corrective_task_resolved, append_tasks, canonical_validation_task,
 )
 from ninexf.tools import tool_result_failed
 from ninexf.validate import validate
@@ -146,11 +146,25 @@ class TestTasks(unittest.TestCase):
 
     def test_task_is_corrective(self):
         self.assertTrue(task_is_corrective(Task(6, "Fix validation failures: compile-check")))
+        self.assertTrue(task_is_corrective(Task(8, "Resolve blocker frontend_static in src/index.html: missing stylesheet")))
         self.assertTrue(task_is_corrective(Task(7, "Fix acceptance criterion C1 (something)")))
         self.assertFalse(task_is_corrective(Task(2, "Create src/main.py")))
 
     def test_corrective_task_resolution_uses_current_validation_evidence(self):
         task = Task(6, "Fix validation failures: frontend_static: src/index.html: chart/graph language is present but no visible chart marks")
+        self.assertFalse(corrective_task_resolved(
+            task,
+            [],
+            ["frontend_static: src/index.html: chart/graph language is present but no visible chart marks"],
+        ))
+        self.assertTrue(corrective_task_resolved(
+            task,
+            [],
+            ["product_warning: frontend_static: src/index.html: script src 'script.js' does not resolve"],
+        ))
+
+    def test_corrective_task_resolution_handles_resolve_blocker(self):
+        task = Task(9, "Resolve blocker frontend_static in src/index.html: chart/graph language is present but no visible chart marks")
         self.assertFalse(corrective_task_resolved(
             task,
             [],
@@ -168,6 +182,15 @@ class TestTasks(unittest.TestCase):
         nums = append_tasks(d, ["Fix validation failures: x"])
         self.assertEqual(nums, [1])
         self.assertEqual(len(load_tasks(d).tasks), 1)
+
+    def test_canonical_validation_task_frontend_static(self):
+        self.assertEqual(
+            canonical_validation_task(
+                "frontend_static: src/index.html: chart/graph language is present but no visible chart marks",
+                "frontend_static",
+            ),
+            "Resolve blocker frontend_static in src/index.html: chart/graph language is present but no visible chart marks",
+        )
 
     def test_sanitize_bad_decomposition(self):
         tasks, criteria, rejected = sanitize_decomposition(
@@ -257,7 +280,9 @@ class TestTasks(unittest.TestCase):
         )
         self.assertGreaterEqual(len(tasks), 5)
         self.assertIn("src/index.html", tasks[0])
+        self.assertTrue(any("local visual primitives" in task for task in tasks))
         self.assertTrue(any("Refine the existing" in task for task in tasks))
+        self.assertTrue(any("harness-reported validation blockers" in task for task in tasks))
         self.assertTrue(any("without adding backend servers" in criterion.lower()
                             for criterion in criteria))
 
@@ -411,6 +436,18 @@ class TestBackendAndStatus(unittest.TestCase):
     def test_tool_result_failed_detects_nonzero_exit(self):
         self.assertTrue(tool_result_failed("[exit 1] traceback"))
         self.assertFalse(tool_result_failed("[ok] done"))
+
+    def test_note_filter_drops_claim_contradicted_by_warning(self):
+        self.assertTrue(note_contradicted(
+            "The chart now includes visible marks such as data points.",
+            [],
+            ["product_warning: frontend_static: src/index.html: chart/graph language is present but no visible chart marks"],
+        ))
+        self.assertFalse(note_contradicted(
+            "Use teal for the revenue card accent.",
+            [],
+            ["product_warning: frontend_static: src/index.html: chart/graph language is present but no visible chart marks"],
+        ))
 
 
 class TestRelevance(unittest.TestCase):
@@ -851,6 +888,26 @@ class TestValidationEvidence(unittest.TestCase):
         self.assertFalse(result.passed)
         self.assertEqual(result.failure_kind, "frontend_static")
         self.assertIn("instantiates Chart", "\n".join(result.errors))
+
+    def test_dashboard_quality_warnings_flag_sparse_nonresponsive_css(self):
+        d = Path(tempfile.mkdtemp())
+        (d / "src").mkdir()
+        html = d / "src" / "index.html"
+        css = d / "src" / "styles.css"
+        html.write_text(
+            "<!doctype html><html><head><link rel='stylesheet' href='styles.css'></head>"
+            "<body><main class='dashboard'><section class='metrics'>"
+            "<div class='metric'>$120K</div><div class='metric'>42%</div><div class='metric'>8,901</div>"
+            "</section><svg class='chart'><rect x='0' y='0' width='10' height='10'></rect>"
+            "<rect x='12' y='0' width='10' height='12'></rect><rect x='24' y='0' width='10' height='14'></rect>"
+            "</svg></main></body></html>"
+        )
+        css.write_text("body{font-family:Arial}.metric{padding:4px}\n")
+        result = validate(d, [html, css], timeout=5, allow_network=True, phase="final")
+        self.assertTrue(result.passed, result.errors)
+        joined = "\n".join(result.warnings)
+        self.assertIn("responsive layout cues", joined)
+        self.assertIn("visually sparse", joined)
 
 
 class TestRepairEvidence(unittest.TestCase):

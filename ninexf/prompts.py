@@ -27,7 +27,7 @@ Reply with the instruction only — no preamble, no numbering, no markdown."""
 PLANNER_USER = """\
 GOAL (the unchanging north star):
 {goal}
-{contract_section}
+{contract_section}{blocker_section}
 {tasks_section}{notes_section}
 CURRENT CODEBASE:
 {codebase}
@@ -54,6 +54,11 @@ build state. Do not target done or deferred tasks.
 CONTRACT_SECTION = """
 PROJECT CONTRACT (stable source of truth):
 {contract}
+"""
+
+BLOCKER_SECTION = """
+CURRENT BLOCKER (harness-observed evidence to address next):
+{blocker}
 """
 
 NOTES_SECTION = """

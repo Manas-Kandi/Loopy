@@ -427,7 +427,7 @@ class TestEvidenceDrivenGuards(unittest.TestCase):
             verify = events(entries, "verify")[0]
             self.assertFalse(verify["validation_passed"])
             tasks = (project / "TASKS.md").read_text()
-            self.assertIn("Fix validation failures", tasks)
+            self.assertIn("Resolve blocker", tasks)
             self.assertNotIn("Fix acceptance criterion", tasks)
         finally:
             cleanup(project)

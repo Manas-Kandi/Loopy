@@ -60,6 +60,7 @@ def save_contract(
             "- Dashboard pages must include real sample data, at least three visible metric values, and visible chart/graph marks.",
             "- Do not use empty chart, graph, metric, card, or KPI placeholders as evidence of completed UI work.",
             "- Prefer self-contained sample data and offline-friendly rendering; do not introduce backend servers, localhost APIs, or polling unless the goal explicitly asks for them.",
+            "- Prefer local visual primitives such as SVG, canvas drawing, tables, meter, or progress elements over implicit third-party chart libraries unless the goal explicitly asks for one.",
         ])
     lines = [
         CONTRACT_HEADER,

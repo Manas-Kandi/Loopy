@@ -366,6 +366,18 @@ def _load_script_sources(project_dir: Path, assets: list[Path]) -> list[str]:
     return sources
 
 
+def _load_text_sources(assets: list[Path], suffixes: set[str]) -> list[str]:
+    sources: list[str] = []
+    for asset in assets:
+        if asset.suffix.lower() not in suffixes:
+            continue
+        try:
+            sources.append(asset.read_text())
+        except (OSError, UnicodeDecodeError):
+            continue
+    return sources
+
+
 def _js_defines_chart(js_sources: list[str]) -> bool:
     for source in js_sources:
         if re.search(r"\bclass\s+Chart\b", source):
@@ -416,6 +428,42 @@ def _has_canvas_chart_signal(probe: _HTMLProbe, js_sources: list[str]) -> bool:
     return False
 
 
+def _dashboard_quality_warnings(probe: _HTMLProbe, css_sources: list[str]) -> list[str]:
+    warnings: list[str] = []
+    css_blob = "\n".join(css_sources).lower()
+    if not css_blob:
+        return warnings
+    responsive_cues = (
+        "@media", "minmax(", "clamp(", "flex-wrap", "grid-template-columns",
+        "repeat(", "max-width", "min-width",
+    )
+    if not any(cue in css_blob for cue in responsive_cues):
+        warnings.append(
+            "product_warning: frontend_static: dashboard-like CSS lacks clear responsive layout cues "
+            "(e.g. media queries, minmax, grid columns, or flex-wrap)"
+        )
+    styling_hits = sum(
+        1 for cue in ("background", "border-radius", "box-shadow", "padding", "gap", "font-size")
+        if cue in css_blob
+    )
+    if styling_hits < 4:
+        warnings.append(
+            "product_warning: frontend_static: dashboard-like CSS appears visually sparse; "
+            "add stronger spacing, hierarchy, and surface styling"
+        )
+    metric_blocks = sum(
+        1 for tag, attrs in probe.tags
+        if tag in {"div", "section", "article", "li"}
+        and any(term in f"{attrs.get('class', '')} {attrs.get('id', '')}".lower()
+                for term in ("metric", "kpi", "card", "stat"))
+    )
+    if metric_blocks < 3:
+        warnings.append(
+            "product_warning: frontend_static: dashboard-like HTML has fewer than three obvious metric/card blocks"
+        )
+    return warnings
+
+
 def _frontend_static_errors(
     project_dir: Path,
     written_files: list[Path],
@@ -452,6 +500,7 @@ def _frontend_static_errors(
             continue
 
         stylesheet_links = []
+        stylesheet_assets: list[Path] = []
         valid_stylesheets = 0
         for tag, attrs in probe.tags:
             if tag != "link":
@@ -480,6 +529,7 @@ def _frontend_static_errors(
                 )
                 continue
             valid_stylesheets += 1
+            stylesheet_assets.append(asset)
 
         script_srcs = []
         script_assets: list[Path] = []
@@ -511,6 +561,7 @@ def _frontend_static_errors(
             script_assets.append(asset)
 
         js_sources = _load_script_sources(project_dir, script_assets)
+        css_sources = _load_text_sources(stylesheet_assets, {".css"})
         runtime_issue = _canvas_runtime_issue(js_sources)
         if runtime_issue and (
             any(tag == "canvas" for tag, _ in probe.tags)
@@ -559,6 +610,7 @@ def _frontend_static_errors(
             )
 
         if dashboard_like:
+            warnings.extend(_dashboard_quality_warnings(probe, css_sources))
             numbers = _numeric_value_count(visible_text)
             if numbers < 3:
                 _add_phase_issue(

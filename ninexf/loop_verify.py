@@ -97,7 +97,10 @@ class VerifyMixin:
                 corrective.append(f"Fix acceptance criterion C{num} ({text})"
                                   + (f": {reason}" if reason else ""))
             if not result.passed:
-                corrective.append("Fix validation failures: " + "; ".join(result.errors)[:300])
+                if result.errors:
+                    corrective.append(canonical_validation_task(
+                        result.errors[0], result.failure_kind,
+                    ))
             if acc_passed is False:
                 corrective.append("Fix the failing held-out acceptance tests "
                                   "(run via the acceptance criteria — the suite itself is read-only)")

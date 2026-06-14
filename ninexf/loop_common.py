@@ -40,7 +40,7 @@ from ninexf.log import logger
 from ninexf.looplog import LogEntry, append_entry, last_iteration_number, now_iso, read_entries
 from ninexf.parser import ParsedOutput, parse_executor_output
 from ninexf.prompts import (
-    CHANGES_SECTION, CRITIC_SYSTEM, CRITIC_USER, DECOMPOSE_RETRY_NOTE,
+    BLOCKER_SECTION, CHANGES_SECTION, CRITIC_SYSTEM, CRITIC_USER, DECOMPOSE_RETRY_NOTE,
     DECOMPOSE_SYSTEM, DECOMPOSE_USER, DIAGNOSIS_SYSTEM, DIAGNOSIS_USER,
     EXECUTOR_SYSTEM, EXECUTOR_USER, EXPLORE_NUDGE_A, EXPLORE_NUDGE_B,
     FORMAT_RETRY_NOTE,
@@ -61,6 +61,7 @@ from ninexf.tasks import (
     parse_task_refs, infer_task_ids_for_files,
     task_has_file_evidence, task_is_corrective, task_needs_model_check,
     corrective_task_resolved,
+    canonical_validation_task,
     sanitize_decomposition, save_criteria, save_tasks, strip_task_ref,
     fallback_decomposition,
     tasks_for_prompt, tasks_path, append_tasks,
@@ -156,3 +157,28 @@ def _fatal_parse_problems(parsed: ParsedOutput) -> list[str]:
 def _parse_warnings(parsed: ParsedOutput) -> list[str]:
     """Non-fatal formatting problems worth logging without rejecting good code."""
     return [p for p in parsed.problems if p not in _fatal_parse_problems(parsed)]
+
+
+def note_contradicted(note: str, errors: list[str], warnings: list[str]) -> bool:
+    lowered = note.strip().lower()
+    evidence = " ".join([*(e.lower() for e in errors), *(w.lower() for w in warnings)])
+    if not lowered or not evidence:
+        return False
+    if "no visible chart marks" in evidence and any(
+        phrase in lowered for phrase in (
+            "visible marks", "data points", "tooltips", "chart now includes",
+            "labels and tooltips", "clear labels",
+        )
+    ):
+        return True
+    if ("does not resolve" in evidence or "no local chart library" in evidence) and any(
+        phrase in lowered for phrase in (
+            "self-contained", "offline-friendly", "all local asset/runtime references are correctly resolved",
+            "fixed any broken local asset", "verified",
+        )
+    ):
+        return True
+    if any(term in lowered for term in ("fixed", "resolved", "now includes", "verified")):
+        if "still appears" in evidence:
+            return True
+    return False
