@@ -13,7 +13,7 @@ from pathlib import Path
 from unittest import mock
 
 from ninexf.backends import (
-    BackendError, NvidiaBackend, OllamaBackend, _post_json,
+    BackendError, MistralBackend, NvidiaBackend, OllamaBackend, _post_json,
     context_overflowed, is_rate_limit_error,
 )
 from ninexf.candidates import CandidateResult, parse_critic_output, pick_winner
@@ -25,6 +25,7 @@ from ninexf.loop_common import ExecOutcome, _repair_file_dump, note_contradicted
 from ninexf.models import (
     DEFAULT_MODEL,
     GPT_OSS_20B_MODEL,
+    MISTRAL_SMALL_MODEL,
     NVIDIA_GEMMA_MODEL,
     NVIDIA_KIMI_MODEL,
     NVIDIA_QWEN_NEXT_MODEL,
@@ -469,11 +470,47 @@ class TestBackendAndStatus(unittest.TestCase):
         self.assertIn("system instructions", payload["messages"][0]["content"])
         self.assertIn("user prompt", payload["messages"][0]["content"])
 
+    def test_mistral_backend_uses_direct_chat_completions_payload(self):
+        cfg = Config(
+            model=MISTRAL_SMALL_MODEL,
+            backend_timeout=123,
+            temperature=0.6,
+            top_p=0.7,
+            max_tokens=16384,
+        )
+        with mock.patch.dict("os.environ", {"MISTRAL_API_KEY": "test-key"}):
+            backend = MistralBackend(cfg)
+        with mock.patch(
+            "ninexf.backends._post_json",
+            return_value={"choices": [{"message": {"content": "ok"}}]},
+        ) as post:
+            self.assertEqual(
+                backend.complete("system instructions", "user prompt", max_tokens=4096),
+                "ok",
+            )
+        url, payload = post.call_args.args[:2]
+        self.assertEqual(url, "https://api.mistral.ai/v1/chat/completions")
+        self.assertEqual(payload["model"], "mistral-small-2603")
+        self.assertEqual(payload["max_tokens"], 4096)
+        self.assertEqual(payload["temperature"], 0.6)
+        self.assertEqual(payload["top_p"], 0.7)
+        self.assertEqual(payload["response_format"], {"type": "text"})
+        self.assertEqual(payload["messages"][0]["role"], "system")
+        self.assertEqual(payload["messages"][1]["role"], "user")
+        self.assertEqual(post.call_args.kwargs["timeout"], 123)
+        self.assertEqual(post.call_args.kwargs["headers"]["Authorization"], "Bearer test-key")
+
     def test_nvidia_backend_defaults_to_nvidia_api_key_env(self):
         cfg = Config(model=NVIDIA_KIMI_MODEL)
         with mock.patch.dict("os.environ", {}, clear=True):
             with self.assertRaisesRegex(BackendError, "NVIDIA_API_KEY"):
                 NvidiaBackend(cfg)
+
+    def test_mistral_backend_defaults_to_mistral_api_key_env(self):
+        cfg = Config(model=MISTRAL_SMALL_MODEL)
+        with mock.patch.dict("os.environ", {}, clear=True):
+            with self.assertRaisesRegex(BackendError, "MISTRAL_API_KEY"):
+                MistralBackend(cfg)
 
     def test_running_state_with_dead_pid_is_failed(self):
         state = {"running": True, "pid": 12345, "ts": "2026-06-12T03:38:59+00:00"}
@@ -586,6 +623,7 @@ class TestPresets(unittest.TestCase):
         options = model_options([])
         self.assertEqual(options[0], DEFAULT_MODEL)
         self.assertIn(GPT_OSS_20B_MODEL, options)
+        self.assertIn(MISTRAL_SMALL_MODEL, options)
         self.assertIn(NVIDIA_GEMMA_MODEL, options)
         self.assertIn(NVIDIA_QWEN_NEXT_MODEL, options)
 
@@ -601,6 +639,8 @@ class TestPresets(unittest.TestCase):
         self.assertEqual(models["default"], DEFAULT_MODEL)
         self.assertIn(GPT_OSS_20B_MODEL, models["models"])
         self.assertIn(GPT_OSS_20B_MODEL, models["recommended"])
+        self.assertIn(MISTRAL_SMALL_MODEL, models["models"])
+        self.assertIn(MISTRAL_SMALL_MODEL, models["recommended"])
         self.assertIn(NVIDIA_GEMMA_MODEL, models["models"])
         self.assertIn(NVIDIA_GEMMA_MODEL, models["recommended"])
         self.assertIn(NVIDIA_QWEN_NEXT_MODEL, models["models"])
@@ -692,6 +732,13 @@ class TestDecomposeFallback(unittest.TestCase):
         cfg = load_config(d)
         self.assertEqual(cfg.api_key_env, "NVIDIA_API_KEY")
         self.assertEqual(cfg.endpoint, "https://integrate.api.nvidia.com/v1")
+
+    def test_mistral_config_writes_provider_defaults(self):
+        d = Path(tempfile.mkdtemp())
+        write_config(d, {"model": MISTRAL_SMALL_MODEL})
+        cfg = load_config(d)
+        self.assertEqual(cfg.api_key_env, "MISTRAL_API_KEY")
+        self.assertEqual(cfg.endpoint, "https://api.mistral.ai/v1")
 
     def test_start_run_blocks_second_active_nvidia_run(self):
         active = Path(tempfile.mkdtemp())

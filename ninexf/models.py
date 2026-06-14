@@ -12,10 +12,12 @@ NVIDIA_GEMMA_MODEL = "nvidia/google/gemma-4-31b-it"
 NVIDIA_QWEN_MODEL = "nvidia/qwen/qwen3.5-122b-a10b"
 NVIDIA_QWEN_NEXT_MODEL = "nvidia/qwen/qwen3-next-80b-a3b-instruct"
 NVIDIA_KIMI_MODEL = "nvidia/moonshotai/kimi-k2.6"
+MISTRAL_SMALL_MODEL = "mistral/mistral-small-2603"
 
 RECOMMENDED_MODELS = (
     DEFAULT_MODEL,
     GPT_OSS_20B_MODEL,
+    MISTRAL_SMALL_MODEL,
     NVIDIA_GEMMA_MODEL,
     NVIDIA_QWEN_MODEL,
     NVIDIA_QWEN_NEXT_MODEL,

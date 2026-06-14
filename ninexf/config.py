@@ -61,6 +61,7 @@ DEFAULTS = {
 }
 
 NVIDIA_ENDPOINT = "https://integrate.api.nvidia.com/v1"
+MISTRAL_ENDPOINT = "https://api.mistral.ai/v1"
 
 # Named presets applied at init (`9xf init --preset overnight`). A preset is a
 # layer between DEFAULTS and explicit CLI overrides. "overnight" trades wall
@@ -236,6 +237,11 @@ def write_config(project_dir: Path, overrides: dict | None = None,
             data["endpoint"] = NVIDIA_ENDPOINT
         if data.get("api_key_env") == DEFAULTS["api_key_env"]:
             data["api_key_env"] = "NVIDIA_API_KEY"
+    if str(data.get("model", "")).startswith("mistral/"):
+        if data.get("endpoint") == DEFAULTS["endpoint"]:
+            data["endpoint"] = MISTRAL_ENDPOINT
+        if data.get("api_key_env") == DEFAULTS["api_key_env"]:
+            data["api_key_env"] = "MISTRAL_API_KEY"
     path = project_dir / CONFIG_FILENAME
     path.write_text(json.dumps(data, indent=2) + "\n")
     return path

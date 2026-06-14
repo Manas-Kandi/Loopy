@@ -346,6 +346,10 @@ Set in `9xf.config.json` (written at init, never modified by the agent):
   present. Endpoint defaults to `https://integrate.api.nvidia.com/v1`.
   Benchmark models include `nvidia/qwen/qwen3.5-122b-a10b` and
   `nvidia/moonshotai/kimi-k2.6`.
+- `mistral/<model>` — direct Mistral cloud inference via the chat-completions
+  API. Reads `MISTRAL_API_KEY` by default; endpoint defaults to
+  `https://api.mistral.ai/v1`. The model selector includes
+  `mistral/mistral-small-2603`.
 - `anthropic/<model>` — API mode for comparison runs; reads the key from the
   env var named by `api_key_env` (default `ANTHROPIC_API_KEY`)
 - `mock` — deterministic scripted backend for testing the harness itself.

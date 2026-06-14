@@ -6,25 +6,55 @@
 const { app, BrowserWindow, dialog, ipcMain } = require('electron');
 const { spawn } = require('child_process');
 const http = require('http');
+const net = require('net');
 const path = require('path');
 
-const PORT = process.env.NINEXF_PORT || 9118;
+const DEFAULT_PORT = Number(process.env.NINEXF_PORT || 9118);
 const PYTHON = process.env.NINEXF_PYTHON || 'python3';
-const URL = `http://127.0.0.1:${PORT}`;
+const REQUIRED_MODEL = 'mistral/mistral-small-2603';
+let port = DEFAULT_PORT;
+let url = `http://127.0.0.1:${port}`;
 
 let server = null;
 let win = null;
 let spawnedHere = false;
 
 function ping(cb) {
-  http.get(`${URL}/api/runs`, res => cb(res.statusCode === 200))
+  http.get(`${url}/api/runs`, res => cb(res.statusCode === 200))
     .on('error', () => cb(false));
 }
 
-function startServer() {
+function hasCurrentModelList(cb) {
+  http.get(`${url}/api/models`, res => {
+    let body = '';
+    res.setEncoding('utf8');
+    res.on('data', chunk => { body += chunk; });
+    res.on('end', () => {
+      try {
+        const data = JSON.parse(body);
+        const models = Array.isArray(data.models) ? data.models : [];
+        cb(models.includes(REQUIRED_MODEL));
+      } catch {
+        cb(false);
+      }
+    });
+  }).on('error', () => cb(false));
+}
+
+function findOpenPort(start, cb) {
+  const candidate = Number(start);
+  const probe = net.createServer();
+  probe.once('error', () => findOpenPort(candidate + 1, cb));
+  probe.once('listening', () => {
+    probe.close(() => cb(candidate));
+  });
+  probe.listen(candidate, '127.0.0.1');
+}
+
+function startServer(onStarted) {
   // repo root is one level up from app/; works for a git checkout. If ninexf
   // is pip-installed, the cwd doesn't matter.
-  server = spawn(PYTHON, ['-m', 'ninexf', 'app', '--port', String(PORT), '--no-browser'], {
+  server = spawn(PYTHON, ['-m', 'ninexf', 'app', '--port', String(port), '--no-browser'], {
     cwd: path.join(__dirname, '..'),
     stdio: ['ignore', 'inherit', 'inherit'],
   });
@@ -36,6 +66,7 @@ function startServer() {
         'Check that python3 can import ninexf (pip install -e . in the repo).');
     }
   });
+  if (onStarted) onStarted();
 }
 
 function waitForServer(retries, cb) {
@@ -61,7 +92,7 @@ function createWindow() {
       nodeIntegration: false,
     },
   });
-  win.loadURL(URL);
+  win.loadURL(url);
 }
 
 ipcMain.handle('pick-folder', async () => {
@@ -75,16 +106,37 @@ ipcMain.handle('pick-folder', async () => {
 app.whenReady().then(() => {
   // reuse an already-running `9xf app` (e.g. started from the CLI) if present
   ping(alreadyUp => {
-    if (!alreadyUp) startServer();
-    waitForServer(60, ok => {
+    const ready = () => waitForServer(60, ok => {
       if (!ok) {
         dialog.showErrorBox('9xf could not start',
-          `No server at ${URL}.\nIs python3 installed and ninexf importable?\n` +
+          `No server at ${url}.\nIs python3 installed and ninexf importable?\n` +
           '(from the repo: pip install -e .)');
         app.quit();
         return;
       }
       createWindow();
+    });
+    if (!alreadyUp) {
+      startServer(ready);
+      return;
+    }
+    hasCurrentModelList(current => {
+      if (current) {
+        ready();
+        return;
+      }
+      if (process.env.NINEXF_PORT) {
+        dialog.showErrorBox('9xf server is stale',
+          `A server is already running at ${url}, but it does not include ${REQUIRED_MODEL}.\n` +
+          'Stop that server or unset NINEXF_PORT so the desktop app can start a fresh one.');
+        app.quit();
+        return;
+      }
+      findOpenPort(DEFAULT_PORT + 1, nextPort => {
+        port = nextPort;
+        url = `http://127.0.0.1:${port}`;
+        startServer(ready);
+      });
     });
   });
 });

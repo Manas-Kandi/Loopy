@@ -370,6 +370,7 @@ def list_models() -> dict:
     from ninexf.models import (
         DEFAULT_MODEL,
         GPT_OSS_20B_MODEL,
+        MISTRAL_SMALL_MODEL,
         NVIDIA_GEMMA_MODEL,
         NVIDIA_KIMI_MODEL,
         NVIDIA_QWEN_NEXT_MODEL,
@@ -385,6 +386,7 @@ def list_models() -> dict:
         "default": found[0] if found else DEFAULT_MODEL,
         "recommended": [
             GPT_OSS_20B_MODEL,
+            MISTRAL_SMALL_MODEL,
             NVIDIA_GEMMA_MODEL,
             NVIDIA_QWEN_MODEL,
             NVIDIA_QWEN_NEXT_MODEL,

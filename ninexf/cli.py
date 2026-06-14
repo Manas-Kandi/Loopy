@@ -14,6 +14,7 @@ from ninexf.looplog import read_entries
 from ninexf.models import (
     DEFAULT_MODEL,
     GPT_OSS_20B_MODEL,
+    MISTRAL_SMALL_MODEL,
     NVIDIA_GEMMA_MODEL,
     NVIDIA_KIMI_MODEL,
     NVIDIA_QWEN_NEXT_MODEL,
@@ -280,7 +281,7 @@ def main(argv=None):
     p.add_argument("--goal", required=True, help="the high-level goal (the unchanging north star)")
     p.add_argument("--model", default=None,
                    help=f"e.g. {DEFAULT_MODEL}, {GPT_OSS_20B_MODEL}, "
-                        f"{NVIDIA_KIMI_MODEL}, {NVIDIA_QWEN_NEXT_MODEL}, "
+                        f"{MISTRAL_SMALL_MODEL}, {NVIDIA_KIMI_MODEL}, {NVIDIA_QWEN_NEXT_MODEL}, "
                         f"{NVIDIA_GEMMA_MODEL}, mock")
     p.add_argument("--max-iterations", type=int, default=None)
     p.add_argument("--delay", type=float, default=None, help="seconds between iterations")

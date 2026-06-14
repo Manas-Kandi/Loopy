@@ -12,7 +12,7 @@ import socket
 import urllib.error
 import urllib.request
 
-from ninexf.config import DEFAULTS, NVIDIA_ENDPOINT, Config
+from ninexf.config import DEFAULTS, MISTRAL_ENDPOINT, NVIDIA_ENDPOINT, Config
 
 
 class BackendError(Exception):
@@ -266,6 +266,73 @@ class NvidiaBackend(Backend):
             )
         if not content:
             raise BackendError(f"empty response from nvidia: {json.dumps(data)[:300]}")
+        return str(content)
+
+
+class MistralBackend(Backend):
+    """Direct Mistral chat-completions backend.
+
+    Model strings use the normal 9xf convention, for example:
+      mistral/mistral-small-2603
+    """
+
+    def __init__(self, config: Config):
+        super().__init__()
+        self.model = config.model_name
+        self.timeout = config.backend_timeout
+        self.endpoint = config.endpoint.rstrip("/")
+        if self.endpoint == DEFAULTS["endpoint"]:
+            self.endpoint = MISTRAL_ENDPOINT
+        self.default_temperature = config.temperature
+        self.top_p = config.top_p
+        self.max_tokens = config.max_tokens
+        self.api_key_env = _api_key_env(config, "MISTRAL_API_KEY")
+        self.api_key = os.environ.get(self.api_key_env, "")
+        if not self.api_key:
+            raise BackendError(
+                f"API mode requires {self.api_key_env} to be set in the environment",
+                retryable=False,
+            )
+
+    def complete(
+        self,
+        system: str,
+        user: str,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> str:
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "max_tokens": max_tokens or self.max_tokens,
+            "temperature": temperature if temperature is not None
+            else self.default_temperature,
+            "top_p": self.top_p,
+            "stream": False,
+            "response_format": {"type": "text"},
+        }
+        data = _post_json(
+            f"{self.endpoint}/chat/completions",
+            payload,
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Accept": "application/json",
+            },
+            timeout=self.timeout,
+        )
+        choices = data.get("choices") or []
+        message = choices[0].get("message", {}) if choices else {}
+        content = message.get("content", "")
+        if isinstance(content, list):
+            content = "".join(
+                part.get("text", "") if isinstance(part, dict) else str(part)
+                for part in content
+            )
+        if not content:
+            raise BackendError(f"empty response from mistral: {json.dumps(data)[:300]}")
         return str(content)
 
 
@@ -920,11 +987,13 @@ def make_backend(config: Config) -> Backend:
         return AnthropicBackend(config)
     if provider == "nvidia":
         return NvidiaBackend(config)
+    if provider == "mistral":
+        return MistralBackend(config)
     if provider == "mock":
         scenario = config.model.split("/", 1)[1] if "/" in config.model else ""
         return MockBackend(scenario)
     raise BackendError(
         f"unknown provider {provider!r} "
-        "(use ollama/<model>, nvidia/<model>, anthropic/<model>, or mock)",
+        "(use ollama/<model>, nvidia/<model>, mistral/<model>, anthropic/<model>, or mock)",
         retryable=False,
     )
