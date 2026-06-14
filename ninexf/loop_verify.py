@@ -13,12 +13,17 @@ class VerifyMixin:
                    if e.get("event") == "iteration" and e.get("task_id") == task_id
                    and not e.get("validation_passed"))
 
-    def _check_task_done(self, task_id: int, errors: list[str]) -> bool:
+    def _check_task_done(
+        self,
+        task_id: int,
+        errors: list[str],
+        soft_errors: list[str],
+    ) -> tuple[bool, bool]:
         """One cheap YES/NO model call: is task Tn fully complete now?"""
         tl = load_tasks(self.project_dir)
         task = tl.get(task_id)
         if task is None:
-            return False
+            return False, False
         codebase = snapshot_codebase(self.project_dir, self.config.snapshot_budget,
                                      cache=self._file_cache)
         contract = contract_for_prompt(self.project_dir) or "(none)"
@@ -30,10 +35,10 @@ class VerifyMixin:
                                        num=task.num, text=task.text),
             )
         except BackendError as e:
-            errors.append(f"task-check call failed: {e}")
-            return False
+            soft_errors.append(f"task-check skipped: {e}")
+            return False, is_rate_limit_error(e)
         first = reply.strip().splitlines()[0].strip().upper() if reply.strip() else ""
-        return first.startswith("YES")
+        return first.startswith("YES"), False
 
     # -- verify-done (v0.3) -------------------------------------------------------
 

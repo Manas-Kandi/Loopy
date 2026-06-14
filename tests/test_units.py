@@ -12,7 +12,10 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from ninexf.backends import BackendError, NvidiaBackend, OllamaBackend, _post_json, context_overflowed
+from ninexf.backends import (
+    BackendError, NvidiaBackend, OllamaBackend, _post_json,
+    context_overflowed, is_rate_limit_error,
+)
 from ninexf.candidates import CandidateResult, parse_critic_output, pick_winner
 from ninexf.config import PRESETS, Config, load_config, load_dotenv, write_config
 from ninexf.contract import contract_for_prompt, save_contract
@@ -30,7 +33,7 @@ from ninexf.tasks import (
     Task, TaskList, load_tasks, parse_decomposition, parse_task_ref,
     parse_task_ref_num, parse_task_refs, parse_verify_output, sanitize_decomposition,
     save_tasks, strip_task_ref, tasks_for_prompt, infer_task_ids_for_files,
-    task_has_file_evidence,
+    task_has_file_evidence, task_is_corrective, task_needs_model_check,
 )
 from ninexf.validate import validate
 
@@ -110,6 +113,28 @@ class TestTasks(unittest.TestCase):
         self.assertTrue(task_has_file_evidence(
             Task(3, "Fix the acceptance assertion."), ["tests/test_main.py"],
             "TASK T3: Fix the acceptance assertion."))
+
+    def test_task_needs_model_check_only_when_evidence_is_weak(self):
+        self.assertFalse(task_needs_model_check(
+            Task(1, "Create src/main.py with a greeting."),
+            ["src/main.py"],
+            "TASK T1: Create src/main.py with a greeting.",
+        ))
+        self.assertFalse(task_needs_model_check(
+            Task(6, "Fix validation failures: frontend_static"),
+            ["src/index.html", "src/script.js"],
+            "TASK T6: Fix the chart rendering bug in src/script.js.",
+        ))
+        self.assertTrue(task_needs_model_check(
+            Task(4, "Polish the dashboard interactions."),
+            ["src/script.js"],
+            "TASK T4: Improve the interactions.",
+        ))
+
+    def test_task_is_corrective(self):
+        self.assertTrue(task_is_corrective(Task(6, "Fix validation failures: compile-check")))
+        self.assertTrue(task_is_corrective(Task(7, "Fix acceptance criterion C1 (something)")))
+        self.assertFalse(task_is_corrective(Task(2, "Create src/main.py")))
 
     def test_sanitize_bad_decomposition(self):
         tasks, criteria, rejected = sanitize_decomposition(
@@ -250,6 +275,10 @@ class TestStuck(unittest.TestCase):
 
 
 class TestBackendAndStatus(unittest.TestCase):
+    def test_detect_rate_limit_error(self):
+        self.assertTrue(is_rate_limit_error("HTTP 429 from provider: Too Many Requests"))
+        self.assertFalse(is_rate_limit_error("HTTP 403 forbidden"))
+
     def test_post_json_timeout_becomes_backend_error(self):
         with mock.patch("urllib.request.urlopen", side_effect=TimeoutError("timed out")):
             with self.assertRaisesRegex(BackendError, "timeout calling"):
@@ -383,6 +412,14 @@ class TestFitness(unittest.TestCase):
         ]
         self.assertEqual(best_state(entries)["commit"], "c2")
         self.assertEqual(final_state(entries)["commit"], "c3")
+
+    def test_soft_errors_do_not_hurt_best_state(self):
+        entries = [
+            self._e("c1", validation_passed=True, tasks_done=1, iteration=1),
+            self._e("c2", validation_passed=True, tasks_done=1, iteration=2,
+                    soft_errors=["task-check skipped: HTTP 429"]),
+        ]
+        self.assertEqual(best_state(entries)["commit"], "c2")
 
     def test_empty(self):
         self.assertIsNone(best_state([]))

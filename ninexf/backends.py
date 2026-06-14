@@ -21,6 +21,11 @@ class BackendError(Exception):
         self.retryable = retryable
 
 
+def is_rate_limit_error(err: Exception | str) -> bool:
+    text = str(err)
+    return "HTTP 429" in text or "Too Many Requests" in text
+
+
 def context_overflowed(prompt_tokens: int | None, num_ctx: int) -> bool:
     """Did the prompt fill (and therefore overflow) the context window?
     Ollama truncates silently from the TOP when the prompt exceeds num_ctx —

@@ -521,6 +521,36 @@ def task_has_file_evidence(task: Task | None, written_rel: list[str], subtask: s
     return any(rel.lower() in mentioned for rel in written_rel if rel)
 
 
+def task_mentions_concrete_file(task: Task | None, subtask: str = "") -> bool:
+    if task is None:
+        return False
+    haystack = f"{task.text}\n{subtask}".lower()
+    return bool(re.search(r"\b(?:src|tests|tools)/[A-Za-z0-9_./-]+", haystack))
+
+
+def task_is_corrective(task: Task | None) -> bool:
+    if task is None:
+        return False
+    text = task.text.strip().lower()
+    return (
+        text.startswith("fix validation failures")
+        or text.startswith("fix acceptance criterion")
+        or text.startswith("fix the failing held-out acceptance tests")
+        or text.startswith("fix ")
+    )
+
+
+def task_needs_model_check(task: Task | None, written_rel: list[str], subtask: str = "") -> bool:
+    """Only spend a task_check call when deterministic evidence is weak."""
+    if not task_has_file_evidence(task, written_rel, subtask):
+        return True
+    if task_mentions_concrete_file(task, subtask):
+        return False
+    if task_is_corrective(task):
+        return False
+    return True
+
+
 VERDICT_PASS_RE = re.compile(r"^[\s\-*]*PASS:?\s*C?(?P<num>\d+)", re.IGNORECASE)
 VERDICT_FAIL_RE = re.compile(
     r"^[\s\-*]*FAIL:?\s*C?(?P<num>\d+)\s*(?:[—\-:]\s*(?P<reason>.+))?", re.IGNORECASE

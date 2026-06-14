@@ -6,14 +6,42 @@ from ninexf.loop_common import *  # noqa: F401,F403 - shared LoopRunner surface
 
 
 class PlanningMixin:
+    def _rate_limit_active(self) -> bool:
+        entries = read_entries(self.project_dir)
+        recent = entries[-6:]
+        for entry in recent:
+            if entry.get("event") == "backend_error" and is_rate_limit_error(" ".join(entry.get("errors") or [])):
+                return True
+            for call in entry.get("model_calls", []):
+                if call.get("error") and is_rate_limit_error(call.get("error", "")):
+                    return True
+        return False
+
+    def _should_force_verify(self) -> bool:
+        tl = load_tasks(self.project_dir)
+        if not tl.tasks or not tl.open_tasks():
+            return False
+        prev = [e for e in read_entries(self.project_dir) if e.get("event") == "iteration"]
+        if not prev:
+            return False
+        last = prev[-1]
+        if not last.get("validation_passed") or not last.get("task_id"):
+            return False
+        task = tl.get(int(last["task_id"]))
+        return bool(task and task_is_corrective(task))
+
     def _pick_mode(self, iteration: int) -> str:
         tl = load_tasks(self.project_dir)
         if tl.all_resolved() and self._verify_attempts() < self.config.max_verify_attempts:
             return "verify_done"
+        if self._should_force_verify() and self._verify_attempts() < self.config.max_verify_attempts:
+            return "verify_done"
         prev = [e for e in read_entries(self.project_dir) if e.get("event") == "iteration"]
         if prev and not prev[-1].get("validation_passed"):
             return "fix"
-        if self.config.review_every > 0 and iteration % self.config.review_every == 0:
+        if (not self._rate_limit_active()
+                and self.config.review_every > 0
+                and iteration % self.config.review_every == 0):
             return "review"
         return "build"
 

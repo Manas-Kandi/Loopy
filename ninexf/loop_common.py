@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ninexf import GOAL_FILENAME, STOP_FILENAME
-from ninexf.backends import Backend, BackendError, make_backend
+from ninexf.backends import Backend, BackendError, is_rate_limit_error, make_backend
 from ninexf.candidates import (
     CANDIDATE_TEMPERATURES, CandidateResult, best_of_n_active,
     parse_critic_output, pick_winner,
@@ -59,7 +59,7 @@ from ninexf.tasks import (
     criteria_for_prompt, load_criteria, load_tasks, mark_status,
     parse_decomposition, parse_task_ref, parse_task_ref_num, parse_verify_output,
     parse_task_refs, infer_task_ids_for_files,
-    task_has_file_evidence,
+    task_has_file_evidence, task_is_corrective, task_needs_model_check,
     sanitize_decomposition, save_criteria, save_tasks, strip_task_ref,
     tasks_for_prompt, tasks_path, append_tasks,
 )

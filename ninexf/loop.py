@@ -191,6 +191,7 @@ class LoopRunner(
                 logger.info(f"[9xf]   critic: {critic_verdict}")
 
         parsed, written, errors = outcome.parsed, outcome.written, outcome.errors
+        soft_errors: list[str] = []
         validation_passed = outcome.validation_passed
         validation_detail, tests_ran = outcome.validation_detail, outcome.tests_ran
 
@@ -246,9 +247,15 @@ class LoopRunner(
                             done_candidates.append(tid)
                 current_tasks = load_tasks(self.project_dir)
                 for tid in done_candidates:
-                    if not task_has_file_evidence(current_tasks.get(tid), files_written_rel, subtask):
+                    task = current_tasks.get(tid)
+                    if not task_has_file_evidence(task, files_written_rel, subtask):
                         continue
-                    if self._check_task_done(tid, errors):
+                    if not task_needs_model_check(task, files_written_rel, subtask):
+                        mark_status(self.project_dir, tid, STATUS_DONE)
+                        logger.info(f"[9xf]   task T{tid} marked done")
+                        continue
+                    done, advisory_skipped = self._check_task_done(tid, errors, soft_errors)
+                    if done or (advisory_skipped and task_is_corrective(task)):
                         mark_status(self.project_dir, tid, STATUS_DONE)
                         logger.info(f"[9xf]   task T{tid} marked done")
             elif (cfg.control_mode == "strict"
@@ -326,6 +333,7 @@ class LoopRunner(
             validation_passed=validation_passed,
             validation_detail=validation_detail,
             errors=errors,
+            soft_errors=soft_errors,
             validation_warnings=outcome.validation_warnings,
             parse_warnings=outcome.parse_warnings,
             commit=commit_hash,

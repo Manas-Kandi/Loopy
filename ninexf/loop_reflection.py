@@ -19,6 +19,8 @@ class ReflectionMixin:
         cfg = self.config
         if not (cfg.notes_enabled and cfg.reflection_enabled):
             return False
+        if self._rate_limit_active():
+            return False
         if failed or regression or stuck_signals or parse_warnings:
             return True
         if critic_verdict == "REVISE":
