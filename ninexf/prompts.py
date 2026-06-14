@@ -13,9 +13,15 @@ code. Do not repeat work the log shows was already completed successfully.
 Prefer the smallest coherent implementation slice that can make real progress;
 for UI work this may mean building HTML, CSS, and JS together instead of forcing
 one brittle file-at-a-time step.
+It is good to keep refining the same files or adjacent task slice across
+multiple iterations when that is where quality gains are found. Read the
+current implementation, identify what could be improved, make a small concrete
+improvement, and repeat.
 All implementation files must be inside src/, tests/, or tools/. For web UI
 work, propose paths such as src/index.html, src/styles.css, and src/script.js,
 not repo-root index.html/styles.css/script.js.
+Do not invent backend servers, API fetch flows, polling loops, or mock services
+unless the goal explicitly asks for them.
 Reply with the instruction only — no preamble, no numbering, no markdown."""
 
 PLANNER_USER = """\
@@ -60,7 +66,11 @@ WHAT CHANGED LAST ITERATION (git diff):
 {changes}
 """
 
-MODE_BUILD = ""
+MODE_BUILD = """
+THIS IS A BUILD ITERATION: prefer the next smallest improvement that makes the
+existing implementation more complete, correct, or better designed. It is fine
+to keep working on the same files or task slice across consecutive iterations
+when you are clearly refining the product rather than repeating a failed move."""
 
 MODE_FIX = """
 THIS IS A FIX ITERATION: the previous iteration FAILED validation (see the
@@ -68,11 +78,12 @@ errors in the history above). Your next step must address that failure before
 any new feature work."""
 
 MODE_REVIEW = """
-THIS IS A REVIEW ITERATION: do not add new features. Instead, propose a step
-that reviews the existing code for bugs, errors, inconsistencies, dead code,
-or missing tests — and fixes what it finds. If the history shows the same kind
-of problem recurring, consider proposing a helper script in tools/ (e.g. a
-checker or generator) that future iterations can run."""
+THIS IS A REVIEW ITERATION: do not add new features. Instead, inspect the
+existing files and propose one concrete refinement that improves correctness,
+quality, consistency, or completeness in place. Favor tightening the current
+implementation over creating new infrastructure. If the history shows the same
+kind of problem recurring, consider a helper script in tools/ only when that
+directly supports the goal and stays inside scope."""
 
 NO_TESTS_NOTE = """
 NOTE: the project currently has NO tests. Untested code keeps accumulating
@@ -204,6 +215,8 @@ Rules:
 - Every task must leave the project runnable and validation-green on its own.
   Do not create a task that depends on files planned for later tasks unless
   that task also creates those files.
+- It is acceptable for later tasks to revisit the same files for refinement and
+  polish; not every task needs to introduce a new file.
 - The first task should create the program's entry point in src/. If the final
   app will be split across modules later, the first entry point must be
   standalone and must not import modules that do not exist yet.
@@ -215,6 +228,9 @@ Rules:
   or any unavailable external tool unless the goal explicitly asks for it.
 - For web UI files, use `src/index.html`, `src/styles.css`, and `src/script.js`
   rather than root-level `index.html`, `styles.css`, or `script.js`.
+- Do not introduce backend servers, API fetch requirements, polling loops,
+  localhost services, or mock data APIs unless the goal explicitly asks for
+  them.
 - Do not require generated files to be empty; useful entry points and modules
   should contain behavior.
 - Entry points and demos must be bounded and fast: no sleeps, infinite loops,
@@ -399,6 +415,9 @@ Rules:
 - Implement the smallest coherent slice that leaves the project in a useful
   build state. For frontend/dashboard work, writing related HTML, CSS, and JS
   in one response is allowed when those files depend on each other.
+- Iterative refinement is expected. If the current files already exist, it is
+  often better to improve them directly than to create more files or invent new
+  architecture.
 - Every response must leave the project runnable and validation-green. Do not
   import modules that are not already present in CURRENT CODEBASE unless you
   create those modules in the same response.
@@ -420,6 +439,9 @@ Rules:
   Local stylesheet links must resolve from the HTML file. Dashboard/chart
   goals need real sample data, multiple visible metric values, and visible
   chart or graph marks; never leave empty chart/metric placeholders.
+- Do not introduce backend servers, API fetch flows, localhost services,
+  polling loops, or mock APIs unless the GOAL or SUB-TASK explicitly requires
+  them. Prefer self-contained sample data and offline-friendly rendering.
 - Follow the PROJECT CONTRACT. Do not duplicate canonical implementations.
 - Prefer implementation fixes over weakening tests. Edit tests only when they
   are nondeterministic, contradict the contract, or assert the wrong behavior.

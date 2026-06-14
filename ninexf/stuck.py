@@ -29,6 +29,10 @@ def _similar(a: str, b: str, threshold: float) -> bool:
     return difflib.SequenceMatcher(None, a.lower(), b.lower()).ratio() > threshold
 
 
+def _productive(entry: dict) -> bool:
+    return bool(entry.get("validation_passed") and entry.get("files_written"))
+
+
 def normalize_error(err: str) -> str:
     """Strip digits, quoted strings, and paths so the same underlying error
     matches across iterations even when line numbers or names shift."""
@@ -40,14 +44,22 @@ def normalize_error(err: str) -> str:
 
 def find_repeats(subtask: str, entries: list[dict], threshold: float) -> list[str]:
     """v0.2 signal: proposed subtask ~= one of the last N completed subtasks."""
-    recent = [e.get("subtask", "") for e in entries[-REPEAT_LOOKBACK:] if e.get("subtask")]
+    recent = [
+        e.get("subtask", "")
+        for e in entries[-REPEAT_LOOKBACK:]
+        if e.get("subtask") and not _productive(e)
+    ]
     return [prior for prior in recent if _similar(subtask, prior, threshold)]
 
 
 def detect_oscillation(subtask: str, entries: list[dict], threshold: float) -> StuckSignal | None:
     """A-B-A pattern: the proposal matches iteration N-2 but not N-1 — the loop
     is bouncing between two intents without converging on either."""
-    recent = [e.get("subtask", "") for e in entries[-OSCILLATION_LOOKBACK:] if e.get("subtask")]
+    recent = [
+        e.get("subtask", "")
+        for e in entries[-OSCILLATION_LOOKBACK:]
+        if e.get("subtask") and not _productive(e)
+    ]
     if len(recent) < 2:
         return None
     if _similar(subtask, recent[-2], threshold) and not _similar(subtask, recent[-1], threshold):

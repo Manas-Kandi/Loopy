@@ -53,11 +53,13 @@ def save_contract(
         engineering_rules.extend([
             "- HTML/UI output must be a complete visible first screen, not empty scaffolding or browser-default markup.",
             "- Local stylesheet/script links must resolve relative to the HTML file and stay inside `src/` unless the user explicitly asks otherwise.",
+            "- Repeated in-place refinement of the existing UI files is expected; improve the current artifact before inventing new structure.",
         ])
     if _is_dashboard_goal(goal):
         engineering_rules.extend([
             "- Dashboard pages must include real sample data, at least three visible metric values, and visible chart/graph marks.",
             "- Do not use empty chart, graph, metric, card, or KPI placeholders as evidence of completed UI work.",
+            "- Prefer self-contained sample data and offline-friendly rendering; do not introduce backend servers, localhost APIs, or polling unless the goal explicitly asks for them.",
         ])
     lines = [
         CONTRACT_HEADER,

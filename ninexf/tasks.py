@@ -270,6 +270,40 @@ def _is_dashboard_goal(goal: str) -> bool:
     ))
 
 
+def fallback_decomposition(goal: str) -> tuple[list[str], list[str]]:
+    """Deterministic fallback roadmap when model decomposition is unusable."""
+    if _is_dashboard_goal(goal) or _is_frontend_goal(goal):
+        return (
+            [
+                "Create src/index.html with a complete first-screen dashboard using real sample metric values and the main UI structure.",
+                "Create src/styles.css with a polished responsive layout, visual hierarchy, and styled metric/chart regions.",
+                "Create src/script.js to render the dashboard behavior and any chart/graph output using self-contained sample data.",
+                "Refine the existing src/index.html, src/styles.css, and src/script.js files to improve clarity, density, copy, spacing, and interactions without adding off-goal infrastructure.",
+                "Verify the dashboard is self-contained, offline-friendly, and free of broken local asset/runtime references; fix any remaining validation issues.",
+            ],
+            [
+                "Opening src/index.html shows a complete dashboard first screen with at least three visible metric values based on sample data.",
+                "The dashboard loads local CSS and presents a polished, responsive layout rather than browser-default markup.",
+                "The dashboard includes at least one visible chart, graph, table, meter, or progress-style visualization with real sample data marks.",
+                "The dashboard works without adding backend servers, API fetch requirements, or external install steps unless the goal explicitly asks for them.",
+            ],
+        )
+    return (
+        [
+            "Create the main implementation entry point in src/ with bounded, runnable behavior.",
+            "Add any supporting src/ modules required by the entry point and keep imports self-contained.",
+            "Add deterministic unittest coverage in tests/ for the implemented behavior.",
+            "Refine the existing implementation and tests to fix defects and improve correctness without expanding scope unnecessarily.",
+            "Run through validation issues and make the project green end to end.",
+        ],
+        [
+            "Running the main entry point exits successfully and demonstrates the requested behavior.",
+            "Unittest discovery in tests/ passes without nondeterministic timing or external dependencies.",
+            "The final implementation remains inside src/, tests/, and tools/ with no forbidden setup steps.",
+        ],
+    )
+
+
 def _frontend_quality_rejections(
     goal: str,
     tasks: list[str],
@@ -392,6 +426,8 @@ def tasks_for_prompt(project_dir: Path, control_mode: str = "strict") -> str:
             "  Treat this as guidance. In hybrid mode, choose the smallest coherent slice",
             "  that makes real progress; it may span adjacent open tasks when one file set",
             "  naturally needs to be built together.",
+            "  It is fine to revisit the same open tasks and files across multiple",
+            "  iterations when you are refining the product in place.",
         ]
         for t in sorted(tl.tasks, key=lambda t: t.num):
             label = {STATUS_TODO: "open", STATUS_IN_PROGRESS: "in progress",

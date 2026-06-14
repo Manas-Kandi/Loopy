@@ -33,8 +33,10 @@ from ninexf.tasks import (
     Task, TaskList, load_tasks, parse_decomposition, parse_task_ref,
     parse_task_ref_num, parse_task_refs, parse_verify_output, sanitize_decomposition,
     save_tasks, strip_task_ref, tasks_for_prompt, infer_task_ids_for_files,
+    fallback_decomposition,
     task_has_file_evidence, task_is_corrective, task_needs_model_check,
 )
+from ninexf.tools import tool_result_failed
 from ninexf.validate import validate
 
 
@@ -218,6 +220,16 @@ class TestTasks(unittest.TestCase):
         self.assertEqual(criteria, [])
         self.assertTrue(any("FRONTEND" in r for r in rejected), rejected)
 
+    def test_dashboard_fallback_decomposition_prefers_in_place_refinement(self):
+        tasks, criteria = fallback_decomposition(
+            "Create a good internal customer intelligence corporate dashboard"
+        )
+        self.assertGreaterEqual(len(tasks), 5)
+        self.assertIn("src/index.html", tasks[0])
+        self.assertTrue(any("Refine the existing" in task for task in tasks))
+        self.assertTrue(any("without adding backend servers" in criterion.lower()
+                            for criterion in criteria))
+
     def test_contract_for_prompt(self):
         d = Path(tempfile.mkdtemp())
         save_contract(d, "Build a widget", ["Create src/widget.py"], ["tests pass"])
@@ -255,10 +267,19 @@ class TestStuck(unittest.TestCase):
                 "errors": list(errors), "files_written": list(files)}
 
     def test_repeat_and_oscillation(self):
-        entries = [self._iter("add the parser"), self._iter("add the writer")]
+        entries = [
+            self._iter("add the parser", passed=False, errors=("SyntaxError",), files=()),
+            self._iter("add the writer", passed=False, errors=("SyntaxError",), files=()),
+        ]
         sig = {s.kind for s in detect_signals("add the parser", entries, 0.85)}
         self.assertIn("repeat", sig)
         self.assertIn("oscillation", sig)  # matches N-2, not N-1
+
+    def test_productive_refinement_is_not_flagged_as_repeat(self):
+        entries = [self._iter("refine src/index.html"), self._iter("refine src/styles.css")]
+        sig = {s.kind for s in detect_signals("refine src/index.html", entries, 0.85)}
+        self.assertNotIn("repeat", sig)
+        self.assertNotIn("oscillation", sig)
 
     def test_no_writes(self):
         entries = [self._iter("a", files=()), self._iter("b"), self._iter("c", files=())]
@@ -340,6 +361,10 @@ class TestBackendAndStatus(unittest.TestCase):
         state = {"running": True, "pid": 12345, "ts": "2026-06-12T03:38:59+00:00"}
         with mock.patch("ninexf.dashboard._pid_alive", return_value=False):
             self.assertEqual(_run_status(state, delay=5, last_iter_ok=None), "failed")
+
+    def test_tool_result_failed_detects_nonzero_exit(self):
+        self.assertTrue(tool_result_failed("[exit 1] traceback"))
+        self.assertFalse(tool_result_failed("[ok] done"))
 
 
 class TestRelevance(unittest.TestCase):

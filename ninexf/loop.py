@@ -28,6 +28,7 @@ from ninexf.loop_planning import PlanningMixin
 from ninexf.loop_recovery import RecoveryMixin
 from ninexf.loop_reflection import ReflectionMixin
 from ninexf.loop_verify import VerifyMixin
+from ninexf.tools import tool_result_failed
 
 
 class LoopRunner(
@@ -221,6 +222,14 @@ class LoopRunner(
                         outcome.failure_kind = "tool"
                         outcome.error_signature = msg.lower()[:300]
                         outcome.error_excerpt = msg
+                elif tool_result_failed(result):
+                    msg = f"tool {name!r} failed: {result}"
+                    errors.append(msg)
+                    validation_passed = False
+                    if not outcome.failure_kind:
+                        outcome.failure_kind = "tool"
+                        outcome.error_signature = msg.lower()[:300]
+                        outcome.error_excerpt = result
                 dropped = len(parsed.tool_runs) - len(tool_runs)
             if dropped > 0:
                 errors.append(f"{dropped} tool run(s) dropped (cap {cfg.max_tool_runs_per_iteration})")

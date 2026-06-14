@@ -297,8 +297,13 @@ class TestEvidenceDrivenGuards(unittest.TestCase):
             entries = run_loop(project, max_iterations=2)
             decompose = events(entries, "decompose")[0]
             self.assertTrue(any("FRONTEND" in err for err in decompose["errors"]))
-            self.assertFalse((project / "TASKS.md").exists(),
-                             "weak dashboard decomposition should fall back to plain planning")
+            self.assertTrue((project / "TASKS.md").exists(),
+                            "weak dashboard decomposition should install the fallback roadmap")
+            tasks = (project / "TASKS.md").read_text()
+            contract = (project / "CONTRACT.md").read_text()
+            self.assertIn("src/index.html", tasks)
+            self.assertIn("Refine the existing src/index.html", tasks)
+            self.assertIn("offline-friendly rendering", contract)
             iters = iteration_entries(entries)
             self.assertTrue(iters)
             self.assertFalse(iters[0]["validation_passed"])

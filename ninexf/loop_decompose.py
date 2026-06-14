@@ -41,10 +41,22 @@ class DecomposeMixin:
         if rejections:
             errors.extend(f"decomposition rejected {r}" for r in rejections[:8])
         if len(task_texts) < 2:
-            # never die on a bad decomposition — fall back to v0.2 planning
+            fallback_tasks, fallback_criteria = fallback_decomposition(self.goal)
+            save_tasks(self.project_dir,
+                       TaskList(tasks=[Task(num=i, text=t)
+                                       for i, t in enumerate(fallback_tasks, start=1)]))
+            save_criteria(self.project_dir, fallback_criteria)
+            save_contract(self.project_dir, self.goal, fallback_tasks, fallback_criteria)
             errors.append(f"decomposition produced only {len(task_texts)} task(s); "
-                          "falling back to plain planning")
-            summary = "decomposition failed; continuing without a task list"
+                          "used deterministic fallback roadmap")
+            append_activity(
+                self.project_dir,
+                f"created fallback TASKS.md, ACCEPTANCE.md, and CONTRACT.md ({len(fallback_tasks)} tasks)",
+                iteration=iteration,
+                kind="write",
+            )
+            summary = ("decomposition failed; installed deterministic fallback roadmap "
+                       f"with {len(fallback_tasks)} tasks and {len(fallback_criteria)} criteria")
         else:
             save_tasks(self.project_dir,
                        TaskList(tasks=[Task(num=i, text=t)

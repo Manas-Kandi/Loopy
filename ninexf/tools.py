@@ -74,3 +74,7 @@ def run_tool(
     status = "ok" if rc == 0 else f"exit {rc}"
     out = out[-max_output:] if out else "(no output)"
     return f"[{status}] {out}"
+
+
+def tool_result_failed(result: str) -> bool:
+    return result.startswith("[exit ")
