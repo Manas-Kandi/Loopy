@@ -435,7 +435,7 @@ class TestBackendAndStatus(unittest.TestCase):
         self.assertEqual(cm.exception.retry_after, 42)
 
     def test_ollama_backend_uses_configured_timeout(self):
-        cfg = Config(model="ollama/test:latest", backend_timeout=123)
+        cfg = Config(model="ollama/test:latest", backend_timeout=123, stream=False)
         backend = OllamaBackend(cfg)
         with mock.patch(
             "ninexf.backends._post_json",
@@ -443,6 +443,27 @@ class TestBackendAndStatus(unittest.TestCase):
         ) as post:
             self.assertEqual(backend.complete("system", "user"), "ok")
         self.assertEqual(post.call_args.kwargs["timeout"], 123)
+
+    def test_ollama_streaming_accumulates_tokens_and_reports_progress(self):
+        cfg = Config(model="ollama/test:latest", backend_timeout=123, stream=True)
+        backend = OllamaBackend(cfg)
+        chunks = [
+            {"message": {"content": "Hello"}, "done": False},
+            {"message": {"content": ", "}, "done": False},
+            {"message": {"content": "world"}, "done": False},
+            {"message": {"content": ""}, "done": True,
+             "prompt_eval_count": 12, "eval_count": 3},
+        ]
+        seen = []
+        with mock.patch("ninexf.backends._stream_post", return_value=iter(chunks)) as sp:
+            out = backend.complete("system", "user",
+                                   on_progress=lambda n, preview: seen.append((n, preview)))
+        self.assertEqual(out, "Hello, world")
+        self.assertEqual(sp.call_args.kwargs["timeout"], 123)
+        self.assertTrue(sp.call_args.args[1]["stream"])
+        # progress fired once per content chunk, with a running token count + preview
+        self.assertEqual([n for n, _ in seen], [1, 2, 3])
+        self.assertEqual(seen[-1][1], "Hello, world")
 
     def test_nvidia_backend_uses_chat_completions_payload(self):
         cfg = Config(

@@ -110,11 +110,21 @@ def run_detail(d: Path) -> dict:
         if not any(e.get("event") == "live" and e.get("iteration") == state_iter
                    for e in rendered_entries):
             elapsed = _elapsed_label(state.get("ts", ""))
+            tokens = int(state.get("model_tokens", 0) or 0)
+            tps = float(state.get("model_tps", 0) or 0)
+            preview = str(state.get("model_preview", "") or "")
             summary = "in progress - waiting for the current model/tool call to finish"
             if state_subtask.startswith("waiting for model:"):
-                summary = "model call in progress"
-                if elapsed:
-                    summary += f" for {elapsed}"
+                if tokens > 0:
+                    summary = f"generating · {tokens} tokens"
+                    if tps:
+                        summary += f" · {tps:g} tok/s"
+                    if elapsed:
+                        summary += f" · {elapsed}"
+                else:
+                    summary = "model call in progress"
+                    if elapsed:
+                        summary += f" for {elapsed}"
             rendered_entries.append({
                 "event": "live",
                 "iteration": state_iter,
@@ -141,6 +151,9 @@ def run_detail(d: Path) -> dict:
                 "tool_runs": [],
                 "model_calls": 0,
                 "model_seconds": 0,
+                "model_tokens": tokens,
+                "model_tps": tps,
+                "model_preview": preview,
             })
     for a in (state.get("activity") or [])[-80:]:
         rendered_entries.append({
@@ -199,6 +212,8 @@ def run_detail(d: Path) -> dict:
         "iteration": state.get("iteration", iters[-1].get("iteration", 0) if iters else 0),
         "mode": state.get("mode", ""),
         "live_subtask": state.get("subtask", ""),
+        "live_tokens": int(state.get("model_tokens", 0) or 0),
+        "live_tps": float(state.get("model_tps", 0) or 0),
         "finished": any(e.get("event") == "finished" for e in entries),
         "stop_present": (d / STOP_FILENAME).exists(),
         "tasks": [{"num": t.num, "text": t.text, "status": t.status} for t in tl.tasks],

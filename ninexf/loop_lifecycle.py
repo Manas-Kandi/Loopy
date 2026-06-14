@@ -54,29 +54,52 @@ class LifecycleMixin:
             "ok": False,
             "error": "",
         }
+        call_ts = now_iso()
+        subtask = (
+            f"waiting for model: {purpose} "
+            f"(timeout {self.config.backend_timeout:g}s"
+            + (f", max_tokens {max_tokens}" if max_tokens else "")
+            + ")"
+        )
         try:
             state = read_state(self.project_dir)
-            write_state(
-                self.project_dir,
-                running=True,
-                iteration=int(state.get("iteration", 0) or 0),
-                mode=state.get("mode", "model") or "model",
-                subtask=(
-                    f"waiting for model: {purpose} "
-                    f"(timeout {self.config.backend_timeout:g}s"
-                    + (f", max_tokens {max_tokens}" if max_tokens else "")
-                    + ")"
-                ),
-                ts=now_iso(),
-            )
+            base_iter = int(state.get("iteration", 0) or 0)
+            base_mode = state.get("mode", "model") or "model"
         except Exception:
-            pass
+            base_iter, base_mode = 0, "model"
+
+        def _write_progress(tokens: int, tps: float, preview: str) -> None:
+            try:
+                write_state(
+                    self.project_dir, running=True, iteration=base_iter,
+                    mode=base_mode, subtask=subtask, ts=call_ts,
+                    model_tokens=tokens, model_tps=tps, model_preview=preview,
+                )
+            except Exception:
+                pass
+
+        _write_progress(0, 0.0, "")  # mark the call as started, before any tokens
+
+        last_write = [0.0]
+
+        def on_progress(tokens: int, preview: str) -> None:
+            # Throttle disk writes; a fast local model emits tokens far quicker
+            # than the app polls (every 2s), so ~0.4s granularity is plenty.
+            now = time.perf_counter()
+            if now - last_write[0] < 0.4:
+                return
+            last_write[0] = now
+            elapsed = now - started
+            tps = round(tokens / elapsed, 1) if elapsed > 0 else 0.0
+            _write_progress(tokens, tps, preview)
+
         try:
             response = self.backend.complete(
                 system,
                 user,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                on_progress=on_progress,
             )
             record["response_chars"] = len(response)
             record["ok"] = True

@@ -11,8 +11,14 @@ import os
 import socket
 import urllib.error
 import urllib.request
+from typing import Callable
 
 from ninexf.config import DEFAULTS, MISTRAL_ENDPOINT, NVIDIA_ENDPOINT, Config
+
+# A progress callback fired during streaming generation: (tokens_so_far, text_tail).
+# Backends that can't stream simply never call it; callers must treat it as optional.
+ProgressFn = Callable[[int, str], None]
+PREVIEW_TAIL_CHARS = 220
 
 
 class BackendError(Exception):
@@ -61,9 +67,14 @@ class Backend:
         user: str,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        on_progress: ProgressFn | None = None,
     ) -> str:
         """temperature=None means the backend's default (used by best-of-N
-        candidate sampling to vary candidates)."""
+        candidate sampling to vary candidates).
+
+        on_progress, if given, is called periodically while tokens stream in so
+        the loop can show live feedback during a long (slow local-model) call.
+        Backends that don't stream may ignore it."""
         raise NotImplementedError
 
 
@@ -101,6 +112,39 @@ def _post_json(url: str, payload: dict, headers: dict, timeout: float = 300) -> 
         raise BackendError(f"invalid JSON from {url}: {e}") from e
 
 
+def _stream_post(url: str, payload: dict, headers: dict, timeout: float = 300):
+    """Yield decoded NDJSON objects from a streaming HTTP POST (ollama emits one
+    JSON object per line). Raises BackendError on the same conditions as
+    _post_json so callers can handle both paths identically."""
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json", **headers},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            for raw in resp:
+                line = raw.decode(errors="replace").strip()
+                if not line:
+                    continue
+                try:
+                    yield json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+    except urllib.error.HTTPError as e:
+        body = e.read().decode(errors="replace")[:500]
+        message = f"HTTP {e.code} from {url}: {body}"
+        if e.code in {401, 403}:
+            raise BackendError(message + " (check the provider API key and model access)",
+                               retryable=False) from e
+        raise BackendError(message) from e
+    except urllib.error.URLError as e:
+        raise BackendError(f"cannot reach {url}: {e.reason}") from e
+    except (TimeoutError, socket.timeout) as e:
+        raise BackendError(f"timeout calling {url} after {timeout:g}s") from e
+
+
 class OllamaBackend(Backend):
     def __init__(self, config: Config):
         super().__init__()
@@ -109,6 +153,27 @@ class OllamaBackend(Backend):
         self.num_ctx = config.num_ctx
         self.default_temperature = config.temperature
         self.timeout = config.backend_timeout
+        self.stream = config.stream
+
+    def _payload(self, system: str, user: str, temperature: float | None, stream: bool) -> dict:
+        return {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "stream": stream,
+            "options": {"temperature": temperature if temperature is not None
+                        else self.default_temperature,
+                        "num_ctx": self.num_ctx},
+        }
+
+    def _check_overflow(self, prompt_eval_count) -> None:
+        if context_overflowed(prompt_eval_count, self.num_ctx):
+            self.note_overflow()
+            print(f"[9xf] WARNING: prompt filled the context window "
+                  f"({prompt_eval_count} / num_ctx {self.num_ctx}) — "
+                  f"ollama truncates from the top; raise num_ctx in 9xf.config.json")
 
     def complete(
         self,
@@ -116,31 +181,41 @@ class OllamaBackend(Backend):
         user: str,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        on_progress: ProgressFn | None = None,
     ) -> str:
-        data = _post_json(
-            f"{self.endpoint}/api/chat",
-            {
-                "model": self.model,
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                "stream": False,
-                "options": {"temperature": temperature if temperature is not None
-                            else self.default_temperature,
-                            "num_ctx": self.num_ctx},
-            },
-            headers={},
-            timeout=self.timeout,
-        )
-        if context_overflowed(data.get("prompt_eval_count"), self.num_ctx):
-            self.note_overflow()
-            print(f"[9xf] WARNING: prompt filled the context window "
-                  f"({data.get('prompt_eval_count')} / num_ctx {self.num_ctx}) — "
-                  f"ollama truncates from the top; raise num_ctx in 9xf.config.json")
-        content = data.get("message", {}).get("content", "")
+        url = f"{self.endpoint}/api/chat"
+        if not self.stream:
+            data = _post_json(url, self._payload(system, user, temperature, False),
+                              headers={}, timeout=self.timeout)
+            self._check_overflow(data.get("prompt_eval_count"))
+            content = data.get("message", {}).get("content", "")
+            if not content:
+                raise BackendError(f"empty response from ollama: {json.dumps(data)[:300]}")
+            return content
+
+        # Streaming path: accumulate token chunks and report progress so a slow
+        # local model visibly produces output instead of looking hung.
+        parts: list[str] = []
+        tokens = 0
+        prompt_eval_count = None
+        for obj in _stream_post(url, self._payload(system, user, temperature, True),
+                                headers={}, timeout=self.timeout):
+            chunk = (obj.get("message") or {}).get("content", "")
+            if chunk:
+                parts.append(chunk)
+                tokens += 1
+                if on_progress is not None:
+                    on_progress(tokens, "".join(parts)[-PREVIEW_TAIL_CHARS:])
+            if obj.get("prompt_eval_count") is not None:
+                prompt_eval_count = obj["prompt_eval_count"]
+            if obj.get("eval_count") is not None:
+                tokens = obj["eval_count"]
+            if obj.get("done"):
+                break
+        self._check_overflow(prompt_eval_count)
+        content = "".join(parts)
         if not content:
-            raise BackendError(f"empty response from ollama: {json.dumps(data)[:300]}")
+            raise BackendError("empty response from ollama (stream produced no content)")
         return content
 
 
@@ -162,6 +237,7 @@ class AnthropicBackend(Backend):
         user: str,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        on_progress: ProgressFn | None = None,
     ) -> str:
         payload = {
             "model": self.model,
@@ -237,6 +313,7 @@ class NvidiaBackend(Backend):
         user: str,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        on_progress: ProgressFn | None = None,
     ) -> str:
         payload = {
             "model": self.model,
@@ -300,6 +377,7 @@ class MistralBackend(Backend):
         user: str,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        on_progress: ProgressFn | None = None,
     ) -> str:
         payload = {
             "model": self.model,
@@ -840,6 +918,7 @@ class MockBackend(Backend):
         user: str,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        on_progress: ProgressFn | None = None,
     ) -> str:
         # branches shared by every scenario (acceptance generation, critic)
         if "Write the acceptance test file now" in user:

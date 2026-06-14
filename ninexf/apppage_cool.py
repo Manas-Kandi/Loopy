@@ -266,6 +266,10 @@ textarea{resize:vertical;min-height:76px;line-height:1.55}
 .errblock{margin:9px 0 0 50px;border-radius:9px;padding:9px 12px;
   font:11.5px/1.55 var(--mono);color:var(--red);word-break:break-word;
   background:var(--red-soft);border:1px solid rgba(248,113,113,.2)}
+.streampreview{margin:7px 0 0 50px;border-radius:9px;padding:9px 12px;max-height:130px;overflow:hidden;
+  font:11.5px/1.6 var(--mono);color:var(--txt-2);white-space:pre-wrap;word-break:break-word;
+  background:var(--surface-2);border:1px solid var(--hair-2)}
+.streampreview .cursor{color:var(--accent-bright);font-weight:700}
 .recmeta{display:flex;gap:15px;align-items:center;padding:11px 0 0 50px;font-size:11px;color:var(--faint)}
 .recmeta .hash{font-family:var(--mono);color:var(--accent-bright);cursor:pointer;
   padding:2px 8px;border-radius:6px;background:var(--accent-faint);transition:background .15s}
@@ -586,6 +590,8 @@ function activityGroupHtml(group){
 }
 function entryHtml(e){
   if (e.event === 'live'){
+    const gen = e.model_tokens > 0;
+    const badge = gen ? `${e.model_tokens} tok${e.model_tps?` · ${e.model_tps} tok/s`:''}` : 'Running';
     return `<article class="rec open selected" data-live="1">
       <div class="rechead" style="cursor:default">
         <span class="chev" style="visibility:hidden">▶</span>
@@ -593,10 +599,11 @@ function entryHtml(e){
         <span class="recmode">${esc(e.mode)}</span>
         <span class="rectitle">${esc(e.subtask)}</span>
         <span class="flag warn">live</span>
-        <span class="verdict ok"><span class="cursor">▮</span> Running</span>
+        <span class="verdict ok"><span class="cursor">▮</span> ${esc(badge)}</span>
       </div>
       <div class="recbody"><div class="rbi">
-        <div class="recline execl"><span class="lbl">Exec</span><span class="txt">${esc(e.summary)}</span></div>
+        <div class="recline execl"><span class="lbl">${gen?'Gen':'Exec'}</span><span class="txt">${esc(e.summary)}</span></div>
+        ${gen&&e.model_preview?`<div class="streampreview">${esc(e.model_preview)}<span class="cursor">▮</span></div>`:''}
         <div class="recmeta"><span>not committed yet</span></div>
       </div></div>
     </article>`;
@@ -673,7 +680,8 @@ async function tickRun(){
   const sb = $('statusbar');
   if (running){
     sb.style.display = 'flex';
-    sb.innerHTML = `<span class="cursor">▮</span><span><b>${esc(r.mode||'…')}</b> — iter ${r.iteration}/${r.cap}${r.live_subtask?` — ${esc(r.live_subtask)}`:''}${r.stop_present?' — stopping at boundary':''}</span>`;
+    const gen = r.live_tokens > 0 ? ` — generating ${r.live_tokens} tok${r.live_tps?` (${r.live_tps} tok/s)`:''}` : '';
+    sb.innerHTML = `<span class="cursor">▮</span><span><b>${esc(r.mode||'…')}</b> — iter ${r.iteration}/${r.cap}${r.live_subtask?` — ${esc(r.live_subtask)}`:''}${gen}${r.stop_present?' — stopping at boundary':''}</span>`;
     $('livehint').textContent = 'live · polling 2s';
   } else { sb.style.display = 'none'; $('livehint').textContent = ''; }
 

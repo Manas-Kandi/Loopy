@@ -59,6 +59,7 @@ DEFAULTS = {
     "num_ctx": 16384,  # ollama context window
     "temperature": 0.4,  # default sampling temperature (best-of-N still varies it)
     "top_p": 1.0,
+    "stream": True,  # stream tokens from the backend for live progress (ollama)
 }
 
 NVIDIA_ENDPOINT = "https://integrate.api.nvidia.com/v1"
@@ -156,6 +157,7 @@ class Config:
     num_ctx: int = DEFAULTS["num_ctx"]
     temperature: float = DEFAULTS["temperature"]
     top_p: float = DEFAULTS["top_p"]
+    stream: bool = DEFAULTS["stream"]
     extra: dict = field(default_factory=dict)
 
     @property
