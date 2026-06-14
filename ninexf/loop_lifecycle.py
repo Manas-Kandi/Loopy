@@ -110,8 +110,9 @@ class LifecycleMixin:
         """keep_best: if the run ever reached a better-scoring state than the
         one it's ending in, restore that state before shutdown. Overnight runs
         wander; the deliverable should be the best state ever reached, not the
-        last. Skipped when the run FINISHED (that state is goal-complete)."""
-        if not self.config.keep_best or self._finished:
+        last. When stop_on_goal_complete is disabled, a run may keep improving
+        after FINISHED and should still restore the best final artifact."""
+        if not self.config.keep_best:
             return
         entries = read_entries(self.project_dir)
         best, final = best_state(entries), final_state(entries)

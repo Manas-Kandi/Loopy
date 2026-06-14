@@ -89,10 +89,15 @@ class PlanningMixin:
         task = tl.get(int(last["task_id"]))
         return bool(task and task_is_corrective(task))
 
+    def _completion_verified(self) -> bool:
+        return any(e.get("event") == "finished" for e in read_entries(self.project_dir))
+
     def _pick_mode(self, iteration: int) -> str:
         self._ensure_post_verify_task()
         tl = load_tasks(self.project_dir)
-        if tl.all_resolved() and self._verify_attempts() < self.config.max_verify_attempts:
+        if (tl.all_resolved()
+                and not self._completion_verified()
+                and self._verify_attempts() < self.config.max_verify_attempts):
             return "verify_done"
         if self._should_force_verify() and self._verify_attempts() < self.config.max_verify_attempts:
             return "verify_done"
@@ -162,10 +167,12 @@ class PlanningMixin:
         if not tl.tasks:
             return ""
         open_tasks = tl.open_tasks()
-        if not open_tasks:
-            return ""
         eligible = tl.eligible_task()
         num = parse_task_ref_num(subtask)
+        if not open_tasks:
+            if num:
+                return "all tasks are resolved; choose an in-place quality improvement without a TASK Tn prefix"
+            return ""
         if not num:
             if self.config.control_mode == "hybrid":
                 return ""
@@ -201,4 +208,7 @@ class PlanningMixin:
                 instruction = strip_task_ref(retry or subtask)
                 return f"TASK T{t.num}: {instruction}"
             return f"TASK T{t.num}: {t.text}"
+        if self._task_ref_problem(retry):
+            return ("Review the existing implementation and make one concrete "
+                    "in-place quality improvement toward the goal.")
         return retry

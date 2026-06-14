@@ -44,6 +44,7 @@ DEFAULTS = {
     "reflection_every": 2,
     "reflection_max_notes": 3,
     "acceptance_tests": False,
+    "stop_on_goal_complete": False,
     "critic_enabled": False,
     "critic_max_revisions": 1,
     "best_of_n": 1,
@@ -140,6 +141,7 @@ class Config:
     reflection_every: int = DEFAULTS["reflection_every"]
     reflection_max_notes: int = DEFAULTS["reflection_max_notes"]
     acceptance_tests: bool = DEFAULTS["acceptance_tests"]
+    stop_on_goal_complete: bool = DEFAULTS["stop_on_goal_complete"]
     critic_enabled: bool = DEFAULTS["critic_enabled"]
     critic_max_revisions: int = DEFAULTS["critic_max_revisions"]
     best_of_n: int = DEFAULTS["best_of_n"]

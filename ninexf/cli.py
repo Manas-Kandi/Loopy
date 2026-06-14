@@ -65,7 +65,9 @@ def _generate_acceptance_tests(project: Path, goal: str) -> None:
 def init_project(project: Path, goal: str, *, model: str | None = None,
                  preset: str | None = None, max_iterations: int | None = None,
                  delay: float | None = None, allow_network: bool = False,
-                 acceptance_tests: bool = False, force: bool = False) -> Path:
+                 acceptance_tests: bool = False,
+                 stop_on_goal_complete: bool = False,
+                 force: bool = False) -> Path:
     """Create a run folder: dirs, goal, config, git, registry. The one shared
     init path — the flag CLI, the interactive UI, the web app, and arena seeds
     all route through here."""
@@ -84,6 +86,7 @@ def init_project(project: Path, goal: str, *, model: str | None = None,
         "delay_seconds": delay,
         "allow_network": allow_network or None,
         "acceptance_tests": acceptance_tests or None,
+        "stop_on_goal_complete": stop_on_goal_complete or None,
     }, preset=preset)
     (project / ".gitignore").write_text("__pycache__/\n*.pyc\nstate.json\nrun.out\n")
     if load_config(project).acceptance_tests:  # set via flag or preset
@@ -101,7 +104,9 @@ def cmd_init(args):
         init_project(project, args.goal, model=args.model, preset=args.preset,
                      max_iterations=args.max_iterations, delay=args.delay,
                      allow_network=args.allow_network,
-                     acceptance_tests=args.acceptance_tests, force=args.force)
+                     acceptance_tests=args.acceptance_tests,
+                     stop_on_goal_complete=args.stop_on_goal_complete,
+                     force=args.force)
     except FileExistsError as e:
         sys.exit(str(e))
     print(f"initialized 9xf project in {project}")
@@ -289,6 +294,8 @@ def main(argv=None):
                    help="opt in to network access for validated code (off by default)")
     p.add_argument("--acceptance-tests", action="store_true",
                    help="generate a held-out acceptance test suite from the goal at init")
+    p.add_argument("--stop-on-goal-complete", action="store_true",
+                   help="stop as soon as verify-done passes instead of spending the full budget improving")
     p.add_argument("--preset", default=None, choices=sorted(PRESETS),
                    help="config preset; 'overnight' enables maximum search "
                         "(best-of-N, critic, explore, repair, acceptance tests, keep-best)")

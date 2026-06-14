@@ -324,7 +324,11 @@ history — so the loop can learn from its own helpers.
   exit) at the next iteration boundary. `Ctrl+C` does the same; a second
   `Ctrl+C` force-quits.
 - Iteration cap (default 50), model-call backend timeout (default 900s), and
-  per-run validation timeout (default 10s).
+  per-run validation timeout (default 10s). Passing verify-done records a
+  `finished` event, but the default is to keep making in-place improvements
+  until the iteration or wall-clock budget is exhausted. Set
+  `stop_on_goal_complete: true` or pass `9xf init --stop-on-goal-complete` to
+  preserve the old early-stop behavior.
 - Network is off by default for validated code: on macOS the validation
   subprocess is wrapped in `sandbox-exec` with a deny-network profile
   (best-effort — falls back to a stripped-env run if unavailable). Opt in with

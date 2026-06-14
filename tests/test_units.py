@@ -709,6 +709,9 @@ class TestDecomposeFallback(unittest.TestCase):
     def test_default_control_mode_is_hybrid(self):
         self.assertEqual(Config().control_mode, "hybrid")
 
+    def test_default_continues_after_goal_complete(self):
+        self.assertFalse(Config().stop_on_goal_complete)
+
     def test_unknown_preset_rejected(self):
         with self.assertRaises(ValueError):
             write_config(Path(tempfile.mkdtemp()), preset="nope")

@@ -446,6 +446,11 @@ def tasks_for_prompt(project_dir: Path, control_mode: str = "strict") -> str:
             "  It is fine to revisit the same open tasks and files across multiple",
             "  iterations when you are refining the product in place.",
         ]
+        if tl.all_resolved():
+            lines.append(
+                "  All roadmap tasks are resolved; continue with the highest-value in-place "
+                "quality improvement until the run budget is exhausted."
+            )
         for t in sorted(tl.tasks, key=lambda t: t.num):
             label = {STATUS_TODO: "open", STATUS_IN_PROGRESS: "in progress",
                      STATUS_DONE: "DONE", STATUS_DEFERRED: "deferred"}.get(t.status, "open")

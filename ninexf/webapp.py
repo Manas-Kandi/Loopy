@@ -25,6 +25,7 @@ from urllib.parse import parse_qs, urlparse
 
 from ninexf import CONFIG_FILENAME, GOAL_FILENAME, STOP_FILENAME, __version__
 from ninexf.apppage import APP_PAGE
+from ninexf.apppage_cool import APP_PAGE_COOL
 from ninexf.config import load_config
 from ninexf.dashboard import _run_status, collect_runs
 from ninexf.looplog import read_entries
@@ -504,7 +505,8 @@ class AppHandler(BaseHTTPRequestHandler):
         q = {k: v[0] for k, v in parse_qs(url.query).items()}
         try:
             if url.path in ("/", "/index.html"):
-                self._send(APP_PAGE.encode(), "text/html; charset=utf-8")
+                page = APP_PAGE_COOL if q.get("mode") == "cool" else APP_PAGE
+                self._send(page.encode(), "text/html; charset=utf-8")
             elif url.path == "/api/runs":
                 self._json(collect_runs())
             elif url.path == "/api/run":

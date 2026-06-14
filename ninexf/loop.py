@@ -459,7 +459,7 @@ class LoopRunner(
                     mark = "•"
                 logger.info(f"[9xf] iter {iteration} {mark} {entry.summary or '(no summary)'}"
                       f"  [{entry.commit or 'no commit'}]")
-                if self._finished:
+                if self._finished and cfg.stop_on_goal_complete:
                     self._clean_shutdown(iteration, "goal complete")
                     return
             except BackendError as e:

@@ -11,7 +11,7 @@ from ninexf.tasks import Task, TaskList, save_criteria, save_tasks
 
 class TestFinisher(unittest.TestCase):
     """Phase 1: decompose -> build -> verify_done (one FAIL, corrective task)
-    -> FINISHED before the iteration cap."""
+    -> FINISHED, then keep improving until the budget is reached."""
 
     def setUp(self):
         self.project = make_run("Greeting tool", "mock/finisher")
@@ -19,13 +19,13 @@ class TestFinisher(unittest.TestCase):
     def tearDown(self):
         cleanup(self.project)
 
-    def test_finishes_before_cap(self):
+    def test_verifies_then_continues_until_cap(self):
         entries = run_loop(self.project, max_iterations=10)
 
         self.assertEqual(len(events(entries, "decompose")), 1)
         finished = events(entries, "finished")
-        self.assertEqual(len(finished), 1, "run should FINISH")
-        self.assertLess(finished[0]["iteration"], 10, "finish before the cap")
+        self.assertEqual(len(finished), 1, "run should record FINISHED once")
+        self.assertLess(finished[0]["iteration"], 10, "verification should pass before the cap")
 
         # the first verify intentionally fails one criterion -> corrective task
         verify = events(entries, "verify")
@@ -37,11 +37,27 @@ class TestFinisher(unittest.TestCase):
         self.assertNotIn("[ ]", tasks_md.splitlines()[1:], "no open tasks left")
 
         shutdown = events(entries, "shutdown")
-        self.assertIn("goal complete", shutdown[-1]["summary"])
+        self.assertIn("iteration cap reached", shutdown[-1]["summary"])
+        later_iters = [e for e in iteration_entries(entries)
+                       if e.get("iteration", 0) > finished[0]["iteration"]]
+        self.assertTrue(later_iters, "run should keep improving after completion")
 
         # task targeting: build iterations carried task ids
-        iters = iteration_entries(entries)
+        iters = [e for e in iteration_entries(entries)
+                 if e.get("iteration", 0) < finished[0]["iteration"]]
         self.assertTrue(all(e.get("task_id") for e in iters))
+
+    def test_stop_on_goal_complete_preserves_early_stop(self):
+        project = make_run("Greeting tool", "mock/finisher", {"stop_on_goal_complete": True})
+        try:
+            entries = run_loop(project, max_iterations=10)
+            finished = events(entries, "finished")
+            self.assertEqual(len(finished), 1)
+            shutdown = events(entries, "shutdown")
+            self.assertIn("goal complete", shutdown[-1]["summary"])
+            self.assertEqual(shutdown[-1]["iteration"], finished[0]["iteration"])
+        finally:
+            cleanup(project)
 
 
 class TestRegressor(unittest.TestCase):
