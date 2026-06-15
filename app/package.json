@@ -3,33 +3,29 @@
   "productName": "Loopy",
   "version": "0.6.0",
   "description": "Desktop app for Loopy — local coding loops on your own machine",
+  "author": "Manas Kandi",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Manas-Kandi/9xf-loops.git"
+  },
   "main": "main.js",
   "scripts": {
-    "start": "electron .",
-    "dist:mac": "electron-builder --mac dmg zip",
-    "dist": "electron-builder --mac dmg zip"
+    "prepare:bundle": "node scripts/prepare-python-backend.js && node scripts/build-python-backend.js",
+    "start": "node scripts/prepare-python-backend.js && electron-forge start",
+    "package": "npm run prepare:bundle && electron-forge package",
+    "make": "npm run prepare:bundle && electron-forge make",
+    "make:mac": "npm run prepare:bundle && electron-forge make --platform darwin",
+    "publish": "npm run prepare:bundle && electron-forge publish",
+    "publish:mac": "npm run prepare:bundle && electron-forge publish --platform darwin"
+  },
+  "dependencies": {
+    "update-electron-app": "^3.1.1"
   },
   "devDependencies": {
-    "electron": "^33.0.0",
-    "electron-builder": "^25.1.8"
-  },
-  "build": {
-    "appId": "com.manaskandi.loopy",
-    "productName": "Loopy",
-    "files": [
-      "main.js",
-      "preload.js",
-      "package.json"
-    ],
-    "directories": {
-      "output": "dist"
-    },
-    "mac": {
-      "category": "public.app-category.developer-tools",
-      "target": [
-        "dmg",
-        "zip"
-      ]
-    }
+    "@electron-forge/cli": "^7.5.0",
+    "@electron-forge/maker-dmg": "^7.5.0",
+    "@electron-forge/maker-zip": "^7.5.0",
+    "@electron-forge/publisher-github": "^7.5.0",
+    "electron": "^33.0.0"
   }
 }

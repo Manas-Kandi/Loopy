@@ -1,13 +1,14 @@
 // Loopy desktop app: a thin Electron shell around the `ninexf app` server.
-// It spawns `python -m ninexf app` (the same zero-dependency server the
-// browser UI uses), waits for it to come up, and hosts it in a dark native
-// window with a native folder picker bridged via preload.js.
+// It starts the bundled Loopy backend executable, waits for it to come up, and
+// hosts it in a native window with a native folder picker bridged via preload.js.
 
 const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
 const { spawn } = require('child_process');
+const fs = require('fs');
 const http = require('http');
 const net = require('net');
 const path = require('path');
+// const updateElectronApp = require('update-electron-app');
 
 const DEFAULT_PORT = Number(process.env.NINEXF_PORT || 9118);
 const PYTHON = process.env.NINEXF_PYTHON || 'python3';
@@ -18,6 +19,25 @@ let url = `http://127.0.0.1:${port}`;
 let server = null;
 let win = null;
 let spawnedHere = false;
+
+// Temporarily disabled - needs ESM import fix
+// updateElectronApp({
+//   updateInterval: '1 hour',
+//   logger: console,
+//   notifyUser: true,
+// });
+
+function backendRoot() {
+  return path.join(app.getAppPath(), 'backend');
+}
+
+function backendExecutablePath() {
+  return path.join(app.getAppPath(), 'backend-bin', 'loopy-backend');
+}
+
+function backendModulePath() {
+  return path.join(backendRoot(), 'ninexf', '__main__.py');
+}
 
 function ping(cb) {
   http.get(`${url}/api/runs`, res => cb(res.statusCode === 200))
@@ -52,18 +72,46 @@ function findOpenPort(start, cb) {
 }
 
 function startServer(onStarted) {
-  // repo root is one level up from app/; works for a git checkout. If ninexf
-  // is pip-installed, the cwd doesn't matter.
-  server = spawn(PYTHON, ['-m', 'ninexf', 'app', '--port', String(port), '--no-browser'], {
-    cwd: path.join(__dirname, '..'),
+  const bundledBackend = backendRoot();
+  const backendExecutable = backendExecutablePath();
+  const modulePath = backendModulePath();
+  const hasExecutable = fs.existsSync(backendExecutable);
+  const hasSourceFallback = fs.existsSync(modulePath);
+  if (!hasExecutable && !hasSourceFallback) {
+    dialog.showErrorBox(
+      'Loopy backend is missing',
+      `Loopy could not find its bundled backend at:\n${backendExecutable}\n\nRebuild the app bundle before distributing it.`,
+    );
+    app.quit();
+    return;
+  }
+  const command = hasExecutable ? backendExecutable : PYTHON;
+  const args = hasExecutable
+    ? ['app', '--port', String(port), '--no-browser']
+    : ['-m', 'ninexf', 'app', '--port', String(port), '--no-browser'];
+  const pythonPath = [bundledBackend, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter);
+  server = spawn(command, args, {
+    cwd: hasExecutable ? path.dirname(backendExecutable) : bundledBackend,
     stdio: ['ignore', 'inherit', 'inherit'],
+    env: {
+      ...process.env,
+      ...(hasExecutable ? {} : { PYTHONPATH: pythonPath }),
+    },
   });
   spawnedHere = true;
+  server.on('error', err => {
+    if (win && !win.isDestroyed()) {
+      dialog.showErrorBox(
+        'Loopy could not launch its backend',
+        `${String(err.message || err)}\n\nBackend path: ${command}`,
+      );
+    }
+  });
   server.on('exit', code => {
     if (win && !win.isDestroyed() && code !== 0 && code !== null) {
       dialog.showErrorBox('Loopy backend stopped',
-        `The python server exited (code ${code}).\n` +
-        'Check that python3 can import ninexf (pip install -e . in the repo).');
+        `The backend exited (code ${code}).\n` +
+        `Backend path: ${command}`);
     }
   });
   if (onStarted) onStarted();
@@ -119,8 +167,7 @@ app.whenReady().then(() => {
     const ready = () => waitForServer(60, ok => {
       if (!ok) {
         dialog.showErrorBox('Loopy could not start',
-          `No server at ${url}.\nIs python3 installed and ninexf importable?\n` +
-          '(from the repo: pip install -e .)');
+          `No server at ${url}.\nLoopy launches a bundled backend executable, so the app bundle may be incomplete.`);
         app.quit();
         return;
       }

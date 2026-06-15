@@ -1,2 +1,7 @@
 node_modules/
 dist/
+out/
+backend/
+backend-bin/
+.pyinstaller/
+.venv/
