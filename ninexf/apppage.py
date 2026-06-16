@@ -111,21 +111,19 @@ body.home #home{display:flex}
 .raillabel .lvchip{font:600 10px var(--mono);color:var(--accent2);
   background:var(--accent-soft);border-radius:99px;padding:1px 8px}
 #runlist{flex:1;overflow-y:auto;padding:0 8px}
-.runitem{display:flex;gap:10px;align-items:flex-start;padding:7px 11px;cursor:pointer;
-  border-radius:7px;margin-bottom:1px;position:relative;
-  transition:background .14s ease}
+.runitem{display:flex;gap:9px;align-items:center;padding:5px 10px;cursor:pointer;
+  border-radius:6px;transition:background .12s ease}
 .runitem:hover{background:var(--panel2)}
 .runitem.active{background:var(--accent-soft)}
-.runitem.active::before{content:"";position:absolute;left:3px;top:9px;bottom:9px;width:2px;
-  border-radius:2px;background:var(--accent)}
-.led{width:7px;height:7px;margin-top:6px;border-radius:50%;background:var(--faint);flex:none}
-.led.running{background:var(--green)}
+.led{width:7px;height:7px;border-radius:50%;background:var(--faint);flex:none}
+.led.running{background:var(--green);animation:ledpulse 1.5s ease-in-out infinite}
 .led.finished{background:var(--accent)}
 .led.failed{background:var(--red)}
 .led.stale{background:var(--accent-bright)}
-.runitem .g{font-size:12.5px;color:var(--txt);overflow:hidden;text-overflow:ellipsis;
-  white-space:nowrap;max-width:196px}
-.runitem .s{font-size:11px;color:var(--faint);margin-top:1px}
+@keyframes ledpulse{0%,100%{opacity:1}50%{opacity:.3}}
+.runitem .g{flex:1;min-width:0;font-size:12.5px;color:var(--txt);overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.runitem .frac{flex:none;font:10px var(--mono);color:var(--faint)}
 #railfoot{padding:9px 18px;display:flex;align-items:center;
   justify-content:space-between;font:10.5px var(--mono);color:var(--faint)}
 #clock{color:var(--dim)}
@@ -168,6 +166,36 @@ body.home #home{display:flex}
 /* ---------- overview / home (flat, mostly boxless) ---------- */
 #home{flex:1;overflow-y:auto;flex-direction:column;align-items:center;padding:30px 32px 90px}
 .hwrap{width:100%;max-width:700px}
+
+/* inline start box ("launcher") + quick cards — begin a project, no popup */
+.launcher{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+  padding:14px 16px 12px;margin-bottom:12px}
+.launchgoal{display:block;width:100%;border:0;background:transparent;padding:6px 4px;min-height:54px;
+  resize:none;font:15px/1.5 var(--sans);color:var(--txt)}
+.launchgoal::placeholder{color:var(--faint)}
+.launchgoal:focus{outline:none}
+.launchrow{display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:12px;color:var(--dim);
+  background:var(--well);border:1px solid var(--line);border-radius:8px;padding:6px 11px;cursor:pointer;
+  transition:border-color .12s,color .12s;max-width:240px}
+.chip:hover{border-color:var(--line2);color:var(--txt)}
+.chip .ic{color:var(--accent)}
+.chip #folderLabel{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip-select{width:auto;font-size:12px;background:var(--well);border:1px solid var(--line);
+  border-radius:8px;padding:6px 8px;color:var(--dim);max-width:180px}
+.launchseg{height:32px}
+.launchseg button{padding:0 12px;font-size:12px}
+.lspacer{flex:1;min-width:8px}
+.lstart{border-radius:8px;padding:7px 16px;display:inline-flex;align-items:center;gap:6px}
+.garrow{font-weight:700}
+.launchmeta{margin-top:9px;font-size:11px;color:var(--faint)}
+.startcards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:4px}
+.scard{display:flex;flex-direction:column;gap:8px;justify-content:flex-end;min-height:72px;
+  padding:12px 13px;background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  cursor:pointer;transition:border-color .14s,background .14s}
+.scard:hover{border-color:var(--line2);background:var(--panel2)}
+.scard .ic{font-size:15px;color:var(--accent);line-height:1}
+.scard .t{font-size:13px;font-weight:600;color:var(--txt)}
 
 /* header: greeting (left) + level cluster (right), no box */
 .hhead{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap}
@@ -500,37 +528,37 @@ body.nodiff #gutter,body.nodiff #diffpane{display:none}   /* diff register colla
 
   <section id="home" aria-label="overview">
     <div class="hwrap">
-      <div class="hero">
-        <div class="heroCard">
-          <div class="onKicker">Loopy v1</div>
-          <h1>Your local <b>coding loop</b> with a cute co-pilot.</h1>
-          <p>Pick a folder, choose a model, and let Loopy plan, build, test, and commit on your machine. No account, no email capture, no hosted runtime.</p>
-          <div class="heroActions">
-            <button class="primary" onclick="launchPrimaryFlow()">Get started</button>
-            <button onclick="openExistingProject()">Open existing project</button>
-            <button onclick="openSettings()">Settings</button>
-            <button onclick="openAbout()">About</button>
-            <button onclick="openDocs()">Docs</button>
+      <!-- the start box: begin a project inline, no popup -->
+      <div class="launcher hplat" id="launcher">
+        <textarea id="fGoal" class="launchgoal" rows="2"
+          placeholder="What should Loopy build? Describe the goal — one sentence is enough."></textarea>
+        <div id="goalField" style="display:none"></div>   <!-- compat: applyComposeMode toggles this -->
+        <div class="launchrow">
+          <button class="chip" onclick="pickFolder()"><span class="ic">⌖</span><span id="folderLabel">Choose folder</span></button>
+          <div class="seg-switch launchseg" role="radiogroup">
+            <button id="mReg" class="on" onclick="setMode('')">Regular</button>
+            <button id="mOver" onclick="setMode('overnight')">Overnight</button>
           </div>
-          <div class="heroMeta">
-            <div class="heroChip"><div class="k">Install</div><div class="v">macOS-first desktop release</div></div>
-            <div class="heroChip"><div class="k">Models</div><div class="v" id="heroModel">Local Ollama or your own API key</div></div>
-            <div class="heroChip"><div class="k">Storage</div><div class="v">Settings and keys stay on this Mac</div></div>
-          </div>
+          <select id="fModel" class="chip-select" title="Model"></select>
+          <span class="lspacer"></span>
+          <button id="startBtn" class="primary lstart" onclick="startSession()" title="Start  (⌘/Ctrl ↵)">Start <span class="garrow">→</span></button>
         </div>
-        <div class="heroAside heroCard">
-          <div class="heroMascot">
-            <div class="art" id="homeMascotArt"></div>
-            <div>
-              <div style="font-size:14px;font-weight:600">Loopy is on guide duty.</div>
-              <div class="note" id="homeMascotNote">I’ll help you pick a model and get your first project running.</div>
-            </div>
-          </div>
-          <div class="quietCard">
-            <h3>Start page</h3>
-            <div class="note">Use <b>Get started</b> on a first launch, or open an existing Loopy project to jump straight into the transcript and diff view.</div>
-          </div>
+        <input id="fDir" type="hidden">
+        <div id="browser" style="display:none"></div>
+        <div class="formerr" id="fErr" role="alert"></div>
+        <div class="launchmeta">
+          <span id="composeTitle" style="display:none">New project</span>
+          <span id="composeHint">Runs on your machine — no account, no email, nothing leaves this Mac.</span>
         </div>
+      </div>
+
+      <div class="startcards">
+        <div class="scard hplat" onclick="openExistingProject()" role="button" tabindex="0">
+          <div class="ic">▸</div><div class="t">Open existing</div></div>
+        <div class="scard hplat" onclick="openSettings()" role="button" tabindex="0">
+          <div class="ic">⚙</div><div class="t">Settings</div></div>
+        <div class="scard hplat" onclick="openAbout()" role="button" tabindex="0">
+          <div class="ic">★</div><div class="t">About</div></div>
       </div>
 
       <div class="hhead">
@@ -603,36 +631,6 @@ body.nodiff #gutter,body.nodiff #diffpane{display:none}   /* diff register colla
   <div id="mascotArt"></div>
 </div>
 
-<div id="overlay" role="dialog" aria-modal="true"><div class="modal frame">
-  <h2 id="composeTitle">New project</h2>
-  <div class="field"><span class="lbl">Folder</span>
-    <div class="row"><input id="fDir" placeholder="/Users/you/runs/my-tool" autocomplete="off">
-      <button style="flex:0 0 auto" onclick="pickFolder()">Browse</button></div>
-    <div id="browser" style="display:none"></div>
-    <div class="hint" id="composeHint">A new or empty folder, or an existing Loopy project to continue.</div>
-  </div>
-  <div class="field" id="goalField"><span class="lbl">Goal — the unchanging north star</span>
-    <textarea id="fGoal" placeholder="Write a CLI tool that organizes files in a directory by type"></textarea></div>
-  <div class="field"><span class="lbl">Mode</span>
-    <div class="seg-switch" role="radiogroup">
-      <button id="mReg" class="on" onclick="setMode('')">Regular</button>
-      <button id="mOver" onclick="setMode('overnight')">Overnight · max search</button>
-    </div></div>
-  <div class="row">
-    <div class="field"><span class="lbl">Model</span><select id="fModel"></select></div>
-    <div class="field"><span class="lbl">Budget</span>
-      <div class="row">
-        <input id="fIters" type="number" placeholder="iters" min="1">
-        <input id="fHours" type="number" placeholder="hours" step="0.5" min="0.5">
-      </div></div>
-  </div>
-  <div class="formerr" id="fErr" role="alert"></div>
-  <div class="actions">
-    <span class="sp"><span class="kbd">⌘/Ctrl ↵</span> to start</span>
-    <button onclick="closeNew()">Cancel</button>
-    <button id="startBtn" class="primary" onclick="startSession()">Start</button>
-  </div>
-</div></div>
 
 <div id="onboardOverlay" role="dialog" aria-modal="true"><div class="modal frame onboard">
   <div class="onTop">
@@ -719,8 +717,8 @@ setInterval(() => { $('clock').textContent = new Date().toISOString().slice(11,1
 function goHome(){
   current = null; pinnedCommit = null; lastRender = ''; lastRail = '';
   document.body.className = 'home';
-  leavePlay();
-  tickStats(); tickRuns(); setMascotFromStats();
+  tickStats(); tickRuns();
+  setTimeout(updatePlayMode, 80);          // let Loopy come play on the start box
 }
 
 /* ---------- sidebar ---------- */
@@ -734,14 +732,17 @@ function ledClass(r){
 async function tickRuns(){
   let runs; try{ runs = await (await fetch('/api/runs')).json(); }catch(e){ return; }
   /* re-render only on change — innerHTML swaps destroy elements mid-click */
-  const html = runs.map(r => `
-    <div class="runitem ${current===r.dir?'active':''}" role="listitem" tabindex="0"
+  const html = runs.map(r => {
+    const st = r.finished ? 'finished' : r.status;
+    const frac = r.tasks_total ? `${r.tasks_done}/${r.tasks_total}` : '';
+    return `<div class="runitem ${current===r.dir?'active':''}" role="listitem" tabindex="0"
+         title="${esc(st)} · iter ${r.iteration}"
          onclick="selectRun('${esc(r.dir)}')" onkeydown="if(event.key==='Enter')selectRun('${esc(r.dir)}')">
       <i class="led ${ledClass(r)}" aria-hidden="true"></i>
-      <div><div class="g">${esc(r.goal)}</div>
-      <div class="s">${r.finished?'finished':esc(r.status)} · iter ${r.iteration}${r.tasks_total?` · ${r.tasks_done}/${r.tasks_total}`:''}</div></div>
-    </div>`).join('') ||
-    '<div class="s" style="padding:12px 16px;color:var(--faint);font-size:11px">no projects yet — hit New project</div>';
+      <span class="g">${esc(r.goal)}</span>
+      ${frac ? `<span class="frac">${frac}</span>` : ''}
+    </div>`; }).join('') ||
+    '<div class="frac" style="padding:10px 14px;color:var(--faint);font-size:11px">no projects yet</div>';
   if (html !== lastRail){ $('runlist').innerHTML = html; lastRail = html; }
   // any run live? nudge the mascot into work mode while on the home screen
   if (!current) mascotWorkingHint = runs.some(r => r.status === 'running');
@@ -800,14 +801,6 @@ function renderHome(s){
     ? "Loopy's kept the lights on — pick a project, or start something new."
     : 'Set a goal and a local model will plan, build, test, and commit on its own.';
   $('greetLine').textContent = s.sessions ? greetByLevel(p.level) : "What's up next?";
-  if (appSettings){
-    $('heroModel').textContent = appSettings.preferred_mode === 'api'
-      ? `Saved API model: ${appSettings.api_model}`
-      : `Saved local model: ${appSettings.preferred_model}`;
-    $('homeMascotNote').textContent = appSettings.onboarding_complete
-      ? 'Your defaults are saved. I can open an existing project or kick off a fresh one.'
-      : 'First launch? I’ll walk you through model setup in under a minute.';
-  }
 }
 function greetByLevel(l){
   if (l >= 7) return 'Welcome back, legend.';
@@ -904,6 +897,10 @@ const ANIM = {
             ['focus','down','stand',7,[7,8,'#e08a3c']],['happy','up','tuck',7,[7,4,'#e08a3c']],
             ['focus','down','stand',7,[7,8,'#e08a3c']],['focus','out','stand',8,[7,12,'#e08a3c']],
             ['focus','down','stand',7,[7,8,'#e08a3c']],['happy','up','stand',10]]},
+  tennis:  {next:'idle', frames:[['focus','up','stand',9,[2,5,'#c8e36a']],     // ball comes in
+            ['surprise','up','stand',7,[5,7,'#c8e36a']],['happy','out','kick',7,[9,8,'#c8e36a']],  // swing
+            ['happy','out','stand',7,[13,6,'#c8e36a']],['happy','up','stand',7,[16,4,'#c8e36a']],  // sent back
+            ['happy','up','stand',12]]},
 };
 function compose(f, a, l){
   const rows = BODY.slice();
@@ -928,7 +925,7 @@ let interactiveOn = true, bobPhase = 0, lastFinishedDir = null, diffShown = true
 const finishedSeen = new Set();
 // physics + animation + "brain" state for play mode
 const play = {on:false, raf:0, t:0, x:0, y:0, vx:0, vy:0, sx:1, sy:1, grounded:false,
-  targetKey:'', pendingReact:false, tilt:0, droop:0,
+  targetKey:'', pendingReact:false, tilt:0, droop:0, host:'',
   anim:null, ai:0, af:0, animLoop:false, animNext:'idle', acting:false, walkT:0};
 
 let lastSig = '';
@@ -1014,30 +1011,30 @@ $('mascot').onkeydown = e => { if (e.key === 'Enter' || e.key === ' '){ e.preven
 const MS = 44, GRAV = 0.7;
 let brainTimer = 0, seenKeys = new Set();
 
-// every card/activity-block currently on screen, as perchable platforms
+// Loopy lives in two places: on the transcript cards (run view) and on the
+// start box + quick cards (home view). One small helper picks the right host.
+function onHome(){ return document.body.classList.contains('home'); }
+function playHost(){
+  return onHome() ? {el: $('home'), sel: '.hplat'} : {el: $('chat'), sel: '.rec, .actgroup'};
+}
 function platforms(){
-  const c = $('chat').getBoundingClientRect();
+  const h = playHost(); if (!h.el) return [];
+  const c = h.el.getBoundingClientRect();
   const out = [];
-  $('chat').querySelectorAll('.rec, .actgroup').forEach(el => {
+  h.el.querySelectorAll(h.sel).forEach((el, i) => {
     const r = el.getBoundingClientRect();
     if (r.bottom > c.top + 6 && r.top < c.bottom - 6 && r.height > 14)
-      out.push({el, key: el.dataset.k || '', r});
+      out.push({el, key: el.dataset.k || el.id || ('p' + i), r});
   });
   return out;
 }
 function platByKey(k){
   if (!k) return null;
-  let el; try{ el = $('chat').querySelector(`[data-k="${CSS.escape(k)}"]`); }catch(e){ el = null; }
-  if (!el) return null;
-  const c = $('chat').getBoundingClientRect();
-  const r = el.getBoundingClientRect();
-  if (r.bottom < c.top + 6 || r.top > c.bottom - 6) return null;   // scrolled off
-  return {el, key: k, r};
+  return platforms().find(p => p.key === k) || null;
 }
 function perchOf(p){
-  // sit on the card's top-LEFT corner, tucked into the gutter looking at it —
-  // beside your work, not floating over the text
-  const c = $('chat').getBoundingClientRect();
+  // sit on the platform's top-LEFT corner, tucked into the gutter looking at it
+  const c = playHost().el.getBoundingClientRect();
   let tx = p.r.left - MS * 0.34;
   let ty = p.r.top - MS + 7;                                       // feet on the top edge
   tx = Math.max(c.left - MS * 0.25, Math.min(tx, c.right - MS));
@@ -1063,7 +1060,7 @@ function doReact(el){
 /* ----- the brain: pick where to go and what to do next ----- */
 function looperThink(){
   if (!play.on) return;
-  if (play.acting){ scheduleThink(1200); return; }        // let a routine finish first
+  if (play.acting){ scheduleThink(1000); return; }        // let a routine finish first
   const ps = platforms();
   if (!ps.length){ scheduleThink(2500); return; }
   const keys = ps.map(p => p.key);
@@ -1071,15 +1068,25 @@ function looperThink(){
   seenKeys = new Set(keys);
   const cur = ps.findIndex(p => p.key === play.targetKey);
 
-  // mostly he rests and watches; ambles over now and then; perks up for new
-  // cards; and every so often just goofs off where he's standing
+  if (onHome()){
+    // on the start screen he's excited — hops between the box and cards and
+    // plays a lot of soccer / basketball / tennis while you decide what to build
+    const roll = Math.random();
+    if (roll < 0.5) playAnim(pick(['soccer','bball','tennis','dance','joy','floss','cheer']));
+    else { play.targetKey = ps[Math.floor(Math.random()*ps.length)].key; }   // hop somewhere (no react)
+    scheduleThink(1800 + Math.random()*2200);             // livelier: every ~2–4s
+    return;
+  }
+
+  // in the transcript: mostly rests and watches; ambles over now and then;
+  // perks up for new cards; and occasionally goofs off where he's standing
   let key = play.targetKey, move = false;
   if (fresh.length && Math.random() < 0.7){               // new card landed — go look
     key = fresh[fresh.length-1]; move = true;
   } else {
     const roll = Math.random();
     if (roll < 0.55){                                      // rest — sometimes amuse himself
-      if (Math.random() < 0.32) playAnim(pick(['soccer','bball','stretch','think','dance','floss']));
+      if (Math.random() < 0.32) playAnim(pick(['soccer','bball','tennis','stretch','think','dance','floss']));
     }
     else if (roll < 0.74 && cur > 0){ key = ps[cur-1].key; move = true; }                 // up one
     else if (roll < 0.92 && cur >= 0 && cur < ps.length-1){ key = ps[cur+1].key; move = true; } // down one
@@ -1155,11 +1162,12 @@ function enterPlay(){
   play.tilt = 0; play.droop = 0;
   play.x = perch.tx; play.y = perch.ty - 120; play.vx = 0; play.vy = 0; play.grounded = false;
   play.anim = null; play.acting = false; play.walkT = 0; lastSig = '';
+  play.host = onHome() ? 'home' : 'run';
   const m = $('mascot'); m.classList.add('play'); m.classList.remove('idle','working','happy','sleep');
-  playAnim('idle');
+  playAnim(onHome() ? 'joy' : 'idle');                            // bursts in excited on the start screen
   seenKeys = new Set(ps.map(p => p.key));
   cancelAnimationFrame(play.raf); play.raf = requestAnimationFrame(physicsStep);
-  scheduleThink(2500);
+  scheduleThink(onHome() ? 1400 : 2500);
 }
 function leavePlay(){
   if (!play.on) return;
@@ -1169,7 +1177,10 @@ function leavePlay(){
   setMascotFromStats();
 }
 function updatePlayMode(){
-  const want = interactiveOn && document.body.classList.contains('run') && platforms().length > 0;
+  const inView = document.body.classList.contains('run') || onHome();
+  const want = interactiveOn && inView && platforms().length > 0;
+  const host = onHome() ? 'home' : 'run';
+  if (want && play.on && play.host !== host) leavePlay();          // view switched → re-home him
   if (want) enterPlay(); else leavePlay();
 }
 $('playBtn').onclick = () => {
@@ -1461,8 +1472,7 @@ let lastModelPayload = null;
 let onboard = null;
 function providerModeFor(model){ return String(model||'').startsWith('ollama/') ? 'ollama' : 'api'; }
 function syncHomeMascots(){
-  $('homeMascotArt').innerHTML = spriteSvg(compose('happy', 'up', 'stand'));
-  $('onboardMascotArt').innerHTML = spriteSvg(compose('happy', 'up', 'stand'));
+  const o = $('onboardMascotArt'); if (o) o.innerHTML = spriteSvg(compose('happy', 'up', 'stand'));
 }
 function setOnboardMascot(face, bubble){
   $('onboardMascotArt').innerHTML = spriteSvg(compose(face, face === 'focus' ? 'chin' : 'up', 'stand'));
@@ -1470,12 +1480,15 @@ function setOnboardMascot(face, bubble){
 }
 function applyComposeMode(){
   const existing = composeMode === 'existing';
-  $('composeTitle').textContent = existing ? 'Open existing project' : 'New project';
   $('composeHint').textContent = existing
-    ? 'Pick an existing Loopy project folder. If it already has 9xf.config.json, Loopy will resume it.'
-    : 'A new or empty folder, or an existing Loopy project to continue.';
-  $('goalField').style.display = existing ? 'none' : '';
-  $('startBtn').textContent = existing ? 'Open' : 'Start';
+    ? 'Pick an existing Loopy project to resume — no goal needed.'
+    : 'Runs on your machine — no account, no email, nothing leaves this Mac.';
+  $('fGoal').style.display = existing ? 'none' : '';
+  $('startBtn').innerHTML = (existing ? 'Open' : 'Start') + ' <span class="garrow">→</span>';
+}
+function updateFolderLabel(){
+  const p = ($('fDir').value || '').replace(/\/+$/, '');
+  const el = $('folderLabel'); if (el) el.textContent = p ? (p.split('/').pop() || p) : 'Choose folder';
 }
 function populateModelSelects(m){
   if (!m) return;
@@ -1516,20 +1529,23 @@ function launchPrimaryFlow(){
   else openNew();
 }
 function openExistingProject(){ openNew(true); }
+// no popup — "new project" just focuses the inline start box on the home screen
 function openNew(existing=false){
   composeMode = existing ? 'existing' : 'new';
   selectedDirIsRun = false;
-  $('overlay').classList.add('show');
+  if (!document.body.classList.contains('home')) goHome();
   $('fErr').textContent = '';
-  if (!existing) $('fGoal').focus();
-  if (appSettings && appSettings.last_dir) $('fDir').value = appSettings.last_dir;
+  if (appSettings && appSettings.last_dir && !$('fDir').value){ $('fDir').value = appSettings.last_dir; }
+  updateFolderLabel();
   applyComposeMode();
   loadModels();
+  const el = $('launcher'); if (el) el.scrollIntoView({block:'start', behavior:'smooth'});
+  if (!existing) setTimeout(() => $('fGoal').focus(), 60);
 }
-function closeNew(){ $('overlay').classList.remove('show'); $('browser').style.display='none'; }
+function closeNew(){ const b = $('browser'); if (b) b.style.display = 'none'; }
 $('newBtn').onclick = () => openNew();
 const typing = () => /^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement||{}).tagName||'');
-const modalOpen = () => $('overlay').classList.contains('show') || $('onboardOverlay').classList.contains('show')
+const modalOpen = () => $('onboardOverlay').classList.contains('show')
   || $('settingsOverlay').classList.contains('show') || $('aboutOverlay').classList.contains('show');
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape'){
@@ -1538,10 +1554,11 @@ document.addEventListener('keydown', e => {
   if ((e.metaKey || e.ctrlKey) && (e.key === 'b' || e.key === 'B')){  // toggle sidebar
     e.preventDefault(); $('side').classList.toggle('collapsed'); return;
   }
-  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && modalOpen()){  // submit new session
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter'                   // start from the launcher
+      && document.body.classList.contains('home') && !modalOpen()){
     e.preventDefault(); startSession(); return;
   }
-  if (e.key === 'n' && !typing() && !modalOpen() && !e.metaKey && !e.ctrlKey){  // new session
+  if (e.key === 'n' && !typing() && !modalOpen() && !e.metaKey && !e.ctrlKey){  // focus the start box
     e.preventDefault(); openNew();
   }
 });
@@ -1710,14 +1727,14 @@ async function finishApiOnboarding(){
 }
 async function pickFolder(){
   if (window.ninexf && window.ninexf.pickFolder){     /* electron: native macOS dialog */
-    try{ const p = await window.ninexf.pickFolder(); if (p) $('fDir').value = p; return; }
+    try{ const p = await window.ninexf.pickFolder(); if (p){ $('fDir').value = p; updateFolderLabel(); } return; }
     catch(e){ /* native bridge failed — fall through to the in-app browser */ }
   }
   browseTo($('fDir').value || '');                    /* browser: server-side picker */
 }
 async function browseTo(path){
   let r; try{ r = await (await fetch('/api/browse?path='+encodeURIComponent(path))).json(); }catch(e){ return; }
-  $('fDir').value = r.path;
+  $('fDir').value = r.path; updateFolderLabel();
   selectedDirIsRun = !!r.is_run;
   const rows = (r.parent
       ? `<div class="bi" onclick="browseTo('${esc(r.parent)}')"><span class="ic">↑</span><span class="nm">..</span></div>`
@@ -1739,18 +1756,18 @@ async function startSession(){
     model: chosenModel,
     provider_mode: providerModeFor(chosenModel),
     endpoint: providerModeFor(chosenModel) === 'ollama' ? (appSettings && appSettings.ollama_endpoint) : null,
-    iterations: $('fIters').value ? parseInt($('fIters').value) : null,
-    hours: $('fHours').value ? parseFloat($('fHours').value) : null,
+    iterations: ($('fIters') && $('fIters').value) ? parseInt($('fIters').value) : null,
+    hours: ($('fHours') && $('fHours').value) ? parseFloat($('fHours').value) : null,
   };
-  if (!payload.dir){ $('fErr').textContent = 'Pick a folder first'; return; }
+  if (!payload.dir){ $('fErr').textContent = 'Choose a folder first'; return; }
   if (composeMode !== 'existing' && !selectedDirIsRun && !payload.goal){
     $('fErr').textContent = 'Write a goal — one sentence is enough'; return;
   }
   const btn = $('startBtn');
   btn.disabled = true; btn.textContent = 'Starting…'; $('fErr').textContent = '';
   let r; try{ r = await (await fetch('/api/start', {method:'POST', body: JSON.stringify(payload)})).json(); }
-  catch(e){ $('fErr').textContent = 'Server unreachable'; btn.disabled=false; btn.textContent='Start'; return; }
-  if (r.error){ $('fErr').textContent = r.error; btn.disabled=false; btn.textContent='Start'; return; }
+  catch(e){ $('fErr').textContent = 'Server unreachable'; btn.disabled=false; applyComposeMode(); return; }
+  if (r.error){ $('fErr').textContent = r.error; btn.disabled=false; applyComposeMode(); return; }
   btn.disabled = false; btn.textContent = 'Start';
   closeNew(); selectRun(r.dir);
 }
@@ -1813,7 +1830,8 @@ syncHomeMascots();
 scheduleBlink();
 loadAppState();
 tickStats(); tickRuns();
+setTimeout(updatePlayMode, 400);          // Loopy starts playing on the start box
 setInterval(tickRuns, 2500);
 setInterval(tickRun, 2000);
-setInterval(() => { tickStats(); if (lastStats) checkCelebrate(lastStats.goals); setMascotFromStats(); }, 4000);
+setInterval(() => { tickStats(); if (lastStats) checkCelebrate(lastStats.goals); setMascotFromStats(); updatePlayMode(); }, 4000);
 </script></body></html>"""

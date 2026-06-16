@@ -47,7 +47,7 @@ class TestWebApp(unittest.TestCase):
     def test_page_and_static_endpoints(self):
         with urllib.request.urlopen(self.base + "/", timeout=10) as resp:
             html = resp.read().decode()
-        self.assertIn("Get started", html)
+        self.assertIn("What should Loopy build", html)   # inline start box
         self.assertIn("diffpane", html)
         self.assertIsInstance(_get(self.base + "/api/runs"), list)
         b = _get(self.base + "/api/browse?path=")
