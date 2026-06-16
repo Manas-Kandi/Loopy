@@ -270,8 +270,32 @@ def _is_dashboard_goal(goal: str) -> bool:
     ))
 
 
+def _is_game_goal(goal: str) -> bool:
+    lowered = goal.lower()
+    return any(term in lowered for term in (
+        "game", "arcade", "playable", "player", "score", "enemy", "level",
+        "puzzle", "platformer", "canvas",
+    ))
+
+
 def fallback_decomposition(goal: str) -> tuple[list[str], list[str]]:
     """Deterministic fallback roadmap when model decomposition is unusable."""
+    if _is_game_goal(goal) and _is_frontend_goal(goal):
+        return (
+            [
+                "Create src/index.html with a complete visible game first screen including a title, instructions or HUD, and the main play surface.",
+                "Create src/styles.css with a polished responsive game layout, clear visual hierarchy, and non-default styling for the visible UI.",
+                "Create src/script.js with the core game loop, player input handling, and visible state updates using local offline-friendly logic.",
+                "Refine the existing src/index.html, src/styles.css, and src/script.js files to improve controls, feedback, spacing, and presentation without adding off-goal infrastructure.",
+                "Fix any harness-reported validation blockers in the existing game files until the final artifact is self-contained, offline-friendly, and genuinely interactive.",
+            ],
+            [
+                "Opening src/index.html shows a visible game screen with readable on-page UI such as a title, instructions, or status text.",
+                "The page loads local CSS and JS and presents a polished, responsive layout rather than browser-default markup.",
+                "The game includes an obvious play surface such as a canvas or board and at least one user input handler for gameplay.",
+                "The game updates visible state or gameplay over time without requiring backend servers, API fetches, or external installs unless the goal explicitly asks for them.",
+            ],
+        )
     if _is_dashboard_goal(goal) or _is_frontend_goal(goal):
         return (
             [
@@ -309,6 +333,34 @@ def _frontend_quality_rejections(
     tasks: list[str],
     criteria: list[str],
 ) -> list[str]:
+    if _is_game_goal(goal) and _is_frontend_goal(goal):
+        criteria_blob = " ".join(criteria).lower()
+        rejections: list[str] = []
+        has_visible_ui = bool(re.search(
+            r"\b(title|heading|instructions|hud|status|score|visible|readable|screen)\b",
+            criteria_blob,
+        ))
+        has_interaction = bool(re.search(
+            r"\b(input|interactive|keyboard|mouse|click|tap|control|player)\b",
+            criteria_blob,
+        ))
+        has_surface = bool(re.search(r"\b(canvas|board|arena|play surface|playfield)\b", criteria_blob))
+        has_style = bool(re.search(
+            r"\b(css|stylesheet|style|layout|responsive|polished|visual)\b",
+            criteria_blob,
+        ))
+        if not (has_visible_ui and has_interaction and has_surface and has_style):
+            missing = []
+            if not has_visible_ui:
+                missing.append("visible game UI criterion")
+            if not has_interaction:
+                missing.append("input/interactivity criterion")
+            if not has_surface:
+                missing.append("game-surface criterion")
+            if not has_style:
+                missing.append("non-basic styling/layout criterion")
+            rejections.append("FRONTEND: decomposition lacks " + ", ".join(missing))
+        return rejections
     if not _is_dashboard_goal(goal):
         return []
     blob = " ".join(tasks + criteria).lower()

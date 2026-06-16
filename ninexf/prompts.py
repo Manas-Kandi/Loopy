@@ -256,6 +256,9 @@ Rules:
   containers, headers, footers, or generic "basic styling". Dashboard criteria
   must require real sample data/metric values, visible chart or graph marks,
   and a local stylesheet/layout that actually loads.
+- For HTML game goals, criteria must require visible on-page UI, a clear play
+  surface, and actual user input handling; a bouncing shape alone is not a
+  complete game.
 - One line per task/criterion. No other text."""
 
 DECOMPOSE_RETRY_NOTE = """
@@ -289,8 +292,10 @@ Then one sentence why."""
 ACCEPTANCE_TEST_SYSTEM = """\
 You write held-out acceptance tests for an autonomous coding loop. You will be
 shown a goal. Write ONE complete unittest file that checks the finished
-program's observable behavior by running it as a subprocess (the program's
-entry point will be src/main.py). Reply with exactly one file block:
+program's observable behavior. For CLI/program goals, prefer running the entry
+point as a subprocess. For frontend goals, inspect the generated local files
+in src/ directly using stdlib-only parsing; do not assume src/main.py exists.
+Reply with exactly one file block:
 
 FILE: acceptance/test_acceptance.py
 ```python
@@ -299,8 +304,12 @@ FILE: acceptance/test_acceptance.py
 
 Rules:
 - Plain `unittest` + `subprocess` + stdlib only.
-- Run the program via `[sys.executable, 'src/main.py', ...]` with
-  capture_output=True; never import src modules directly.
+- For subprocess-based tests, run the program via
+  `[sys.executable, 'src/main.py', ...]` with capture_output=True; never
+  import src modules directly.
+- For frontend tests, read `src/index.html`, `src/styles.css`, and
+  `src/script.js` as files and assert on observable structure such as visible
+  content, local asset links, interactive hooks, metrics, charts, or game UI.
 - Tests must be specific to the goal's observable behavior, but tolerant of
   reasonable implementation choices (exact wording, ordering).
 - 3 to 6 test methods. Use temp dirs for any file fixtures."""
@@ -516,6 +525,9 @@ Rules:
   Local stylesheet links must resolve from the HTML file. Dashboard/chart
   goals need real sample data, multiple visible metric values, and visible
   chart or graph marks; never leave empty chart/metric placeholders.
+- For HTML game goals, include visible on-page UI (title, instructions, score,
+  or status), a clear play surface, and real input handling; do not treat a
+  passive animation as a complete game.
 - Do not introduce backend servers, API fetch flows, localhost services,
   polling loops, or mock APIs unless the GOAL or SUB-TASK explicitly requires
   them. Prefer self-contained sample data and offline-friendly rendering.

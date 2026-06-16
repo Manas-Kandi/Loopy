@@ -174,19 +174,21 @@ body.home #home{display:flex}
   resize:none;font:15px/1.5 var(--sans);color:var(--txt)}
 .launchgoal::placeholder{color:var(--faint)}
 .launchgoal:focus{outline:none}
-.launchrow{display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap}
-.chip{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:12px;color:var(--dim);
-  background:var(--well);border:1px solid var(--line);border-radius:8px;padding:6px 11px;cursor:pointer;
-  transition:border-color .12s,color .12s;max-width:240px}
+.launchrow{display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:6px;height:34px;font:inherit;font-size:12px;color:var(--dim);
+  background:var(--well);border:1px solid var(--line);border-radius:9px;padding:0 12px;cursor:pointer;
+  transition:border-color .12s,color .12s;max-width:230px}
 .chip:hover{border-color:var(--line2);color:var(--txt)}
 .chip .ic{color:var(--accent)}
 .chip #folderLabel{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.chip-select{width:auto;font-size:12px;background:var(--well);border:1px solid var(--line);
-  border-radius:8px;padding:6px 8px;color:var(--dim);max-width:180px}
-.launchseg{height:32px}
-.launchseg button{padding:0 12px;font-size:12px}
+.chipsel{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 8px 0 11px;
+  background:var(--well);border:1px solid var(--line);border-radius:9px;cursor:pointer;transition:border-color .12s}
+.chipsel:hover{border-color:var(--line2)}
+.chipsel .cic{color:var(--accent);font-size:12px}
+.chipsel select{border:0;background:transparent;color:var(--dim);font:inherit;font-size:12px;
+  padding:0 2px;max-width:168px;cursor:pointer;outline:none;appearance:none;-webkit-appearance:none}
 .lspacer{flex:1;min-width:8px}
-.lstart{border-radius:8px;padding:7px 16px;display:inline-flex;align-items:center;gap:6px}
+.lstart{height:34px;border-radius:9px;padding:0 18px;display:inline-flex;align-items:center;gap:6px}
 .garrow{font-weight:700}
 .launchmeta{margin-top:9px;font-size:11px;color:var(--faint)}
 .startcards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:4px}
@@ -529,12 +531,20 @@ body.nodiff #gutter,body.nodiff #diffpane{display:none}   /* diff register colla
 
   <section id="home" aria-label="start">
     <div class="hwrap">
-      <!-- the start box: a goal and a folder. that's it. -->
+      <!-- the start box: a goal, a folder, a model, an iteration budget. -->
       <div class="launcher hplat" id="launcher">
         <textarea id="fGoal" class="launchgoal" rows="2"
           placeholder="What should Loopy build? Describe the goal — one sentence is enough."></textarea>
         <div class="launchrow">
           <button class="chip" onclick="pickFolder()"><span class="ic">⌖</span><span id="folderLabel">Choose folder</span></button>
+          <label class="chipsel" title="Model"><span class="cic">◇</span><select id="fModel"></select></label>
+          <label class="chipsel" title="Iterations to run"><span class="cic">↻</span><select id="fIters">
+            <option value="10">10 iterations</option>
+            <option value="25">25 iterations</option>
+            <option value="50" selected>50 iterations</option>
+            <option value="100">100 iterations</option>
+            <option value="200">200 iterations</option>
+          </select></label>
           <span class="lspacer"></span>
           <button id="startBtn" class="primary lstart" onclick="startSession()" title="Start  (⌘/Ctrl ↵)">Start <span class="garrow">→</span></button>
         </div>
@@ -542,7 +552,6 @@ body.nodiff #gutter,body.nodiff #diffpane{display:none}   /* diff register colla
         <div id="browser" style="display:none"></div>
         <div class="formerr" id="fErr" role="alert"></div>
         <!-- hidden compat stubs so the existing start logic keeps working -->
-        <select id="fModel" style="display:none"></select>
         <span id="composeHint" style="display:none"></span>
         <span id="composeTitle" style="display:none"></span>
         <div id="goalField" style="display:none"></div>
@@ -779,6 +788,12 @@ const ARMS = {
   flossB: {6:'.H..............', 10:'..............H.'},
   out:    {7:'.H............H.'},
   hip:    {9:'...H..........H.'},
+  waveL:  {3:'.H..............', 9:'..............H.'},   // left up, right down
+  waveR:  {3:'..............H.', 9:'.H..............'},   // right up, left down
+  wide:   {7:'H..............H'},                          // T-pose
+  pumpL:  {3:'.H..............', 8:'..............H.'},   // one fist up (left)
+  pumpR:  {3:'..............H.', 8:'.H..............'},
+  cross:  {9:'.....HH..HH.....'},                          // arms crossed in front
 };
 const LEGS = {
   stand: {13:'....BB....BB....', 14:'....DD....DD....'},
@@ -818,6 +833,24 @@ const ANIM = {
             ['surprise','up','stand',7,[5,7,'#c8e36a']],['happy','out','kick',7,[9,8,'#c8e36a']],  // swing
             ['happy','out','stand',7,[13,6,'#c8e36a']],['happy','up','stand',7,[16,4,'#c8e36a']],  // sent back
             ['happy','up','stand',12]]},
+  football:{next:'idle', frames:[['focus','out','stand',9,[6,12,'#9b6a3a']],  // pick up the ball
+            ['surprise','up','tuck',8,[6,7,'#9b6a3a']],['happy','out','kick',7,[11,8,'#9b6a3a']], // throw
+            ['happy','up','stand',8,[15,5,'#9b6a3a']],['happy','up','stand',8,[16,3,'#9b6a3a']],
+            ['happy','up','tuck',10]]},                                        // touchdown!
+  baseball:{next:'idle', frames:[['focus','wide','stand',9,[1,7,'#f4f4f4']],  // ball pitched in
+            ['surprise','out','stand',7,[5,8,'#f4f4f4']],['happy','out','kick',7,[9,7,'#f4f4f4']], // swing the bat
+            ['happy','up','stand',7,[13,4,'#f4f4f4']],['happy','up','stand',7,[16,1,'#f4f4f4']],   // home run
+            ['happy','up','stand',12]]},
+  robot:   {next:'idle', frames:[['focus','out','stand',8],['focus','wide','walkA',8],
+            ['focus','down','stand',8],['focus','wide','walkB',8],['focus','out','stand',10]]},
+  wave:    {next:'idle', frames:[['happy','waveL','stand',8],['happy','waveR','stand',8],
+            ['happy','waveL','stand',8],['happy','waveR','stand',8],['happy','up','tuck',10]]},
+  shimmy:  {next:'idle', frames:[['happy','swingA','walkA',5],['happy','swingB','walkB',5],
+            ['happy','swingA','walkA',5],['happy','swingB','walkB',5],['happy','hip','stand',6],
+            ['happy','out','tuck',8]]},
+  pump:    {next:'idle', frames:[['happy','pumpL','tuck',8],['happy','pumpR','stand',8],
+            ['happy','pumpL','tuck',8],['happy','pumpR','stand',8],['happy','up','tuck',10]]},
+  spin:    {next:'idle', frames:[['happy','wide','tuck',36],['happy','up','stand',10]]},  // rot driven in physics
 };
 function compose(f, a, l){
   const rows = BODY.slice();
@@ -842,8 +875,14 @@ let interactiveOn = true, bobPhase = 0, lastFinishedDir = null, diffShown = true
 const finishedSeen = new Set();
 // physics + animation + "brain" state for play mode
 const play = {on:false, raf:0, t:0, x:0, y:0, vx:0, vy:0, sx:1, sy:1, grounded:false,
-  targetKey:'', pendingReact:false, tilt:0, droop:0, host:'',
+  targetKey:'', targetFrac:0.15, pendingReact:false, tilt:0, droop:0, host:'',
+  spin:0, spinA:0, startFun:false,
   anim:null, ai:0, af:0, animLoop:false, animNext:'idle', acting:false, walkT:0};
+
+// the goofing-off repertoire — sports + dances
+const SPORTS = ['soccer','bball','tennis','football','baseball'];
+const DANCES = ['dance','floss','robot','wave','shimmy','pump','spin'];
+const FUN = [...SPORTS, ...DANCES, 'cheer','joy','stretch'];
 
 let lastSig = '';
 function renderPose(f, a, l, ball){
@@ -862,6 +901,8 @@ function playAnim(name){
   play.animLoop = !!A.loop; play.animNext = A.next || 'idle'; play.acting = !A.loop;
   const fr = A.frames[0]; renderPose(fr[0], fr[1], fr[2], fr[4] || null);
 }
+// play a routine; 'spin' also kicks off a physical twirl handled in physicsStep
+function doRoutine(name){ if (name === 'spin') play.spin = 36; playAnim(name); }
 function stepAnim(){
   if (!play.anim){ playAnim('idle'); return; }
   if (--play.af > 0) return;                        // hold current frame
@@ -910,7 +951,7 @@ function scheduleBlink(){
   }, 2600 + Math.random()*3400);
 }
 function pokeMascot(){
-  if (play.on){ playAnim(pick(['cheer','floss','dance','joy'])); return; }   // boop → goofs off
+  if (play.on){ doRoutine(pick(FUN)); return; }   // boop → goofs off (sport or dance)
   const m = $('mascot');
   m.classList.remove('poke'); void m.offsetWidth; m.classList.add('poke');
   setMascotArt('happy');
@@ -952,7 +993,9 @@ function platByKey(k){
 function perchOf(p){
   // sit on the platform's top-LEFT corner, tucked into the gutter looking at it
   const c = playHost().el.getBoundingClientRect();
-  let tx = p.r.left - MS * 0.34;
+  // walk along the platform's top edge — targetFrac (0..1) slides him left↔right
+  const span = Math.max(0, p.r.width - MS - 6);
+  let tx = p.r.left - MS * 0.2 + play.targetFrac * span;
   let ty = p.r.top - MS + 7;                                       // feet on the top edge
   tx = Math.max(c.left - MS * 0.25, Math.min(tx, c.right - MS));
   ty = Math.max(c.top + 2, Math.min(ty, c.bottom - MS - 2));
@@ -968,10 +1011,16 @@ function moodOf(el){
 }
 function doReact(el){
   const mood = moodOf(el);
-  if (mood === 'happy') playAnim(pick(['cheer','dance','floss','joy']));   // never the same yay twice
+  if (mood === 'happy') doRoutine(pick([...DANCES, 'cheer','joy']));        // a different celebration each time
   else if (mood === 'sad'){ play.droop = 1; playAnim(pick(['slump','facepalm'])); }
   else if (mood === 'confused'){ play.tilt = 1; playAnim(pick(['scratch','think'])); }
   else playAnim('think');                                                  // reading / inspecting
+}
+function wanderFrac(){ play.targetFrac = 0.08 + Math.random()*0.84; }       // pick a new spot to stroll to
+// what Loopy does the moment he lands somewhere
+function onArrive(tgt){
+  if (play.startFun){ play.startFun = false; doRoutine(pick(FUN)); return; }  // always open with a trick
+  if (play.pendingReact){ play.pendingReact = false; doReact(tgt.el); }
 }
 
 /* ----- the brain: pick where to go and what to do next ----- */
@@ -986,31 +1035,32 @@ function looperThink(){
   const cur = ps.findIndex(p => p.key === play.targetKey);
 
   if (onHome()){
-    // on the start screen he's excited — hops between the box and cards and
-    // plays a lot of soccer / basketball / tennis while you decide what to build
+    // on the start screen he's giddy — struts back and forth across the box and
+    // is always mid-sport or mid-dance while you decide what to build
     const roll = Math.random();
-    if (roll < 0.5) playAnim(pick(['soccer','bball','tennis','dance','joy','floss','cheer']));
-    else { play.targetKey = ps[Math.floor(Math.random()*ps.length)].key; }   // hop somewhere (no react)
-    scheduleThink(1800 + Math.random()*2200);             // livelier: every ~2–4s
+    if (roll < 0.55) doRoutine(pick(FUN));                 // a sport or dance
+    else { wanderFrac(); if (ps.length > 1) play.targetKey = ps[Math.floor(Math.random()*ps.length)].key; }
+    scheduleThink(1600 + Math.random()*2000);             // lively: every ~1.5–3.5s
     return;
   }
 
-  // in the transcript: mostly rests and watches; ambles over now and then;
-  // perks up for new cards; and occasionally goofs off where he's standing
+  // in the transcript: mostly rests and watches; strolls along a card or over to
+  // another; perks up for new cards; and goofs off now and then
   let key = play.targetKey, move = false;
   if (fresh.length && Math.random() < 0.7){               // new card landed — go look
-    key = fresh[fresh.length-1]; move = true;
+    key = fresh[fresh.length-1]; move = true; wanderFrac();
   } else {
     const roll = Math.random();
-    if (roll < 0.55){                                      // rest — sometimes amuse himself
-      if (Math.random() < 0.32) playAnim(pick(['soccer','bball','tennis','stretch','think','dance','floss']));
+    if (roll < 0.42){                                      // potter about where he is
+      if (Math.random() < 0.4) doRoutine(pick([...SPORTS, ...DANCES, 'stretch','think']));
+      else wanderFrac();                                  // just stroll left/right on this card
     }
-    else if (roll < 0.74 && cur > 0){ key = ps[cur-1].key; move = true; }                 // up one
-    else if (roll < 0.92 && cur >= 0 && cur < ps.length-1){ key = ps[cur+1].key; move = true; } // down one
-    else { key = ps[Math.floor(Math.random()*ps.length)].key; move = true; }              // rarely, elsewhere
+    else if (roll < 0.66 && cur > 0){ key = ps[cur-1].key; move = true; wanderFrac(); }            // up one
+    else if (roll < 0.9 && cur >= 0 && cur < ps.length-1){ key = ps[cur+1].key; move = true; wanderFrac(); } // down
+    else { key = ps[Math.floor(Math.random()*ps.length)].key; move = true; wanderFrac(); }         // elsewhere
   }
   if (move){ play.targetKey = key; play.pendingReact = true; }
-  scheduleThink(4000 + Math.random()*5000);               // calm: a decision every 4–9s
+  scheduleThink(3200 + Math.random()*3800);               // a decision every ~3–7s
 }
 function scheduleThink(ms){ clearTimeout(brainTimer); brainTimer = setTimeout(looperThink, ms); }
 
@@ -1031,7 +1081,7 @@ function physicsStep(){
       play.vx = Math.max(-3.5, Math.min(3.5, dx*0.05));
     } else {                                                       // close → walk/glide smoothly
       play.x += dx*0.12; play.y += dy*0.12;
-      if (Math.abs(dx) < 1.2 && Math.abs(dy) < 1.2 && play.pendingReact){ play.pendingReact = false; doReact(tgt.el); }
+      if (Math.abs(dx) < 1.2 && Math.abs(dy) < 1.2) onArrive(tgt);
     }
   }
   if (!play.grounded){
@@ -1040,7 +1090,7 @@ function physicsStep(){
     if (play.y >= perch.ty && play.vy >= 0){                       // land softly
       play.y = perch.ty; play.vy = 0; play.vx = 0; play.grounded = true;
       play.sx = 1.13; play.sy = 0.87;                              // gentle squash
-      if (play.pendingReact){ play.pendingReact = false; doReact(tgt.el); }
+      onArrive(tgt);
     }
   }
 
@@ -1065,6 +1115,7 @@ function physicsStep(){
     bob = Math.sin(bobPhase) * (sad ? 0.6 : 1.0) + play.droop * 4;        // breathing; sadness sinks
   }
   rot += Math.sin(play.t * 0.35) * 6 * play.tilt;                         // confused head-tilt
+  if (play.spin > 0){ play.spin--; play.spinA = (play.spinA + 20) % 360; rot += play.spinA; }  // twirl!
   $('mascot').style.transform =
     `translate(${play.x.toFixed(1)}px,${(play.y+bob).toFixed(1)}px) rotate(${rot.toFixed(2)}deg) scale(${play.sx.toFixed(3)},${play.sy.toFixed(3)})`;
   play.raf = requestAnimationFrame(physicsStep);
@@ -1073,18 +1124,20 @@ function physicsStep(){
 function enterPlay(){
   if (play.on) return;
   const ps = platforms(); if (!ps.length) return;
-  const start = ps[ps.length-1], perch = perchOf(start);
-  play.on = true; play.t = 0; bobPhase = 0;
-  play.targetKey = start.key; play.pendingReact = true;
+  const start = ps[ps.length-1];
+  play.targetFrac = 0.2 + Math.random()*0.45;
+  const perch = perchOf(start);
+  play.on = true; play.t = 0; bobPhase = 0; play.spin = 0; play.spinA = 0;
+  play.targetKey = start.key; play.pendingReact = false; play.startFun = true;   // open with a trick
   play.tilt = 0; play.droop = 0;
   play.x = perch.tx; play.y = perch.ty - 120; play.vx = 0; play.vy = 0; play.grounded = false;
   play.anim = null; play.acting = false; play.walkT = 0; lastSig = '';
   play.host = onHome() ? 'home' : 'run';
   const m = $('mascot'); m.classList.add('play'); m.classList.remove('idle','working','happy','sleep');
-  playAnim(onHome() ? 'joy' : 'idle');                            // bursts in excited on the start screen
+  playAnim('idle');
   seenKeys = new Set(ps.map(p => p.key));
   cancelAnimationFrame(play.raf); play.raf = requestAnimationFrame(physicsStep);
-  scheduleThink(onHome() ? 1400 : 2500);
+  scheduleThink(onHome() ? 1400 : 2000);
 }
 function leavePlay(){
   if (!play.on) return;

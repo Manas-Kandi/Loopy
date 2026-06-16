@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import textwrap
 import sys
 from pathlib import Path
 
@@ -26,6 +27,230 @@ def _project_dir(args) -> Path:
     return Path(args.dir).resolve()
 
 
+def _is_frontend_goal(goal: str) -> bool:
+    lowered = goal.lower()
+    return any(term in lowered for term in (
+        "html", "css", "web page", "webpage", "website", "frontend",
+        "front-end", "ui", "dashboard", "landing page", "browser",
+    ))
+
+
+def _is_dashboard_goal(goal: str) -> bool:
+    lowered = goal.lower()
+    return any(term in lowered for term in (
+        "dashboard", "metric", "metrics", "kpi", "analytics", "chart",
+        "charts", "graph", "graphs", "data",
+    ))
+
+
+def _is_game_goal(goal: str) -> bool:
+    lowered = goal.lower()
+    return any(term in lowered for term in (
+        "game", "arcade", "player", "playable", "score", "enemy",
+        "level", "platformer", "puzzle", "canvas",
+    ))
+
+
+def _frontend_acceptance_body(goal: str) -> str | None:
+    if not _is_frontend_goal(goal):
+        return None
+    if _is_dashboard_goal(goal):
+        return textwrap.dedent(
+            """\
+            import re
+            import unittest
+            from html.parser import HTMLParser
+            from pathlib import Path
+
+
+            class _Probe(HTMLParser):
+                def __init__(self):
+                    super().__init__()
+                    self.tags = []
+                    self.text_parts = []
+
+                def handle_starttag(self, tag, attrs):
+                    self.tags.append((tag.lower(), {k.lower(): (v or "") for k, v in attrs}))
+
+                def handle_data(self, data):
+                    if data.strip():
+                        self.text_parts.append(data.strip())
+
+
+            ROOT = Path(__file__).resolve().parents[1]
+            SRC = ROOT / "src"
+            INDEX = SRC / "index.html"
+
+
+            class TestAcceptance(unittest.TestCase):
+                def _html(self):
+                    self.assertTrue(INDEX.exists(), "src/index.html must exist")
+                    return INDEX.read_text()
+
+                def _probe(self):
+                    probe = _Probe()
+                    probe.feed(self._html())
+                    return probe
+
+                def test_local_assets_exist(self):
+                    html = self._html()
+                    self.assertIn("styles.css", html)
+                    self.assertIn("script.js", html)
+                    self.assertTrue((SRC / "styles.css").exists())
+                    self.assertTrue((SRC / "script.js").exists())
+
+                def test_dashboard_shows_multiple_numeric_metrics(self):
+                    text = " ".join(self._probe().text_parts)
+                    values = re.findall(r"(?<![\\w.])[$]?\\d[\\d,]*(?:\\.\\d+)?[kKmMbB]?%?(?![\\w.])", text)
+                    self.assertGreaterEqual(len(values), 3, text)
+
+                def test_dashboard_has_visible_chart_or_table_markup(self):
+                    html = self._html().lower()
+                    tags = [tag for tag, _ in self._probe().tags]
+                    visible_chart = (
+                        "svg" in tags
+                        or "table" in tags
+                        or "canvas" in tags
+                        or "meter" in tags
+                        or "progress" in tags
+                    )
+                    self.assertTrue(visible_chart, html)
+
+                def test_dashboard_uses_nontrivial_layout_css(self):
+                    css = (SRC / "styles.css").read_text().lower()
+                    self.assertTrue(
+                        any(token in css for token in ("grid", "flex", "@media", "minmax", "clamp", "gap", "padding")),
+                        css,
+                    )
+
+
+            if __name__ == "__main__":
+                unittest.main()
+            """
+        )
+    if _is_game_goal(goal):
+        return textwrap.dedent(
+            """\
+            import re
+            import unittest
+            from html.parser import HTMLParser
+            from pathlib import Path
+
+
+            class _Probe(HTMLParser):
+                def __init__(self):
+                    super().__init__()
+                    self.tags = []
+                    self.text_parts = []
+
+                def handle_starttag(self, tag, attrs):
+                    self.tags.append((tag.lower(), {k.lower(): (v or "") for k, v in attrs}))
+
+                def handle_data(self, data):
+                    if data.strip():
+                        self.text_parts.append(data.strip())
+
+
+            ROOT = Path(__file__).resolve().parents[1]
+            SRC = ROOT / "src"
+            INDEX = SRC / "index.html"
+            STYLES = SRC / "styles.css"
+            SCRIPT = SRC / "script.js"
+
+
+            class TestAcceptance(unittest.TestCase):
+                def _html(self):
+                    self.assertTrue(INDEX.exists(), "src/index.html must exist")
+                    return INDEX.read_text()
+
+                def _probe(self):
+                    probe = _Probe()
+                    probe.feed(self._html())
+                    return probe
+
+                def test_local_game_assets_exist(self):
+                    html = self._html()
+                    self.assertIn("styles.css", html)
+                    self.assertIn("script.js", html)
+                    self.assertTrue(STYLES.exists())
+                    self.assertTrue(SCRIPT.exists())
+
+                def test_visible_game_ui_exists(self):
+                    text = " ".join(self._probe().text_parts)
+                    self.assertGreaterEqual(len(text.split()), 2, text)
+
+                def test_game_surface_exists(self):
+                    tags = [tag for tag, _ in self._probe().tags]
+                    attrs = [attrs for _, attrs in self._probe().tags]
+                    has_surface = "canvas" in tags or any(
+                        any(term in f"{a.get('id', '')} {a.get('class', '')}".lower()
+                            for term in ("game", "board", "arena", "playfield"))
+                        for a in attrs
+                    )
+                    self.assertTrue(has_surface, self._html())
+
+                def test_game_has_input_and_update_loop(self):
+                    js = SCRIPT.read_text().lower()
+                    self.assertRegex(js, r"addeventlistener\\s*\\(\\s*['\\\"](?:key|mouse|click|pointer|touch)")
+                    self.assertRegex(js, r"requestanimationframe|setinterval|settimeout")
+
+                def test_game_css_is_not_browser_default(self):
+                    css = STYLES.read_text().lower()
+                    self.assertTrue(
+                        any(token in css for token in ("background", "grid", "flex", "font", "color", "gap", "padding")),
+                        css,
+                    )
+
+
+            if __name__ == "__main__":
+                unittest.main()
+            """
+        )
+    return textwrap.dedent(
+        """\
+        import unittest
+        from html.parser import HTMLParser
+        from pathlib import Path
+
+
+        class _Probe(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.text_parts = []
+
+            def handle_data(self, data):
+                if data.strip():
+                    self.text_parts.append(data.strip())
+
+
+        ROOT = Path(__file__).resolve().parents[1]
+        SRC = ROOT / "src"
+        INDEX = SRC / "index.html"
+
+
+        class TestAcceptance(unittest.TestCase):
+            def test_frontend_entry_files_exist(self):
+                self.assertTrue(INDEX.exists(), "src/index.html must exist")
+                self.assertTrue((SRC / "styles.css").exists())
+                self.assertTrue((SRC / "script.js").exists())
+
+            def test_frontend_has_visible_content(self):
+                probe = _Probe()
+                probe.feed(INDEX.read_text())
+                self.assertTrue(" ".join(probe.text_parts).strip())
+
+            def test_frontend_links_local_assets(self):
+                html = INDEX.read_text()
+                self.assertIn("styles.css", html)
+                self.assertIn("script.js", html)
+
+
+        if __name__ == "__main__":
+            unittest.main()
+        """
+    )
+
+
 def _generate_acceptance_tests(project: Path, goal: str) -> None:
     """One init-time model call writing the held-out acceptance suite.
     Compile-check + one retry; on failure the run degrades gracefully to
@@ -37,6 +262,17 @@ def _generate_acceptance_tests(project: Path, goal: str) -> None:
 
     backend = make_backend(load_config(project))
     target = project / "acceptance" / "test_acceptance.py"
+    deterministic = _frontend_acceptance_body(goal)
+    if deterministic:
+        target.parent.mkdir(exist_ok=True)
+        target.write_text(deterministic)
+        try:
+            py_compile.compile(str(target), doraise=True)
+            print(f"  acceptance tests: {target.relative_to(project)} (deterministic frontend oracle)")
+            return
+        except py_compile.PyCompileError as e:
+            print(f"  deterministic acceptance tests don't compile: {e}")
+            target.unlink(missing_ok=True)
     for attempt in (1, 2):
         try:
             raw = backend.complete(ACCEPTANCE_TEST_SYSTEM,
@@ -65,8 +301,8 @@ def _generate_acceptance_tests(project: Path, goal: str) -> None:
 def init_project(project: Path, goal: str, *, model: str | None = None,
                  preset: str | None = None, max_iterations: int | None = None,
                  delay: float | None = None, allow_network: bool = False,
-                 acceptance_tests: bool = False,
-                 stop_on_goal_complete: bool = False,
+                 acceptance_tests: bool | None = None,
+                 stop_on_goal_complete: bool | None = None,
                  endpoint: str | None = None,
                  api_key_env: str | None = None,
                  force: bool = False) -> Path:
@@ -88,11 +324,11 @@ def init_project(project: Path, goal: str, *, model: str | None = None,
         "max_iterations": max_iterations,
         "delay_seconds": delay,
         "allow_network": allow_network or None,
-        "acceptance_tests": acceptance_tests or None,
-        "stop_on_goal_complete": stop_on_goal_complete or None,
+        "acceptance_tests": acceptance_tests,
+        "stop_on_goal_complete": stop_on_goal_complete,
         "api_key_env": api_key_env,
     }, preset=preset)
-    (project / ".gitignore").write_text("__pycache__/\n*.pyc\nstate.json\nrun.out\n")
+    (project / ".gitignore").write_text("__pycache__/\n*.pyc\n.DS_Store\nstate.json\nrun.out\n")
     if load_config(project).acceptance_tests:  # set via flag or preset
         _generate_acceptance_tests(project, goal.strip())
     if not (project / ".git").exists():
@@ -296,10 +532,12 @@ def main(argv=None):
     p.add_argument("--delay", type=float, default=None, help="seconds between iterations")
     p.add_argument("--allow-network", action="store_true",
                    help="opt in to network access for validated code (off by default)")
-    p.add_argument("--acceptance-tests", action="store_true",
-                   help="generate a held-out acceptance test suite from the goal at init")
-    p.add_argument("--stop-on-goal-complete", action="store_true",
-                   help="stop as soon as verify-done passes instead of spending the full budget improving")
+    p.add_argument("--acceptance-tests", action=argparse.BooleanOptionalAction, default=None,
+                   help="generate a held-out acceptance test suite from the goal at init "
+                        "(default: on; use --no-acceptance-tests to disable)")
+    p.add_argument("--stop-on-goal-complete", action=argparse.BooleanOptionalAction, default=None,
+                   help="stop as soon as verify-done passes instead of spending the full budget improving "
+                        "(default: on; use --no-stop-on-goal-complete to keep polishing)")
     p.add_argument("--preset", default=None, choices=sorted(PRESETS),
                    help="config preset; 'overnight' enables maximum search "
                         "(best-of-N, critic, explore, repair, acceptance tests, keep-best)")

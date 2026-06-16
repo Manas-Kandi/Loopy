@@ -49,6 +49,7 @@ class LoopRunner(
         self.goal = (project_dir / GOAL_FILENAME).read_text().strip()
         self._interrupted = False
         self._finished = False  # set when verify_done declares the goal complete
+        self._finished_iteration: int | None = None
         self._model_calls: list[dict] = []
         # One file cache for the whole run: context building re-scores the
         # codebase every iteration, but a file's read + AST parse only changes
@@ -262,6 +263,13 @@ class LoopRunner(
         failed = not validation_passed or bool(errors)
         regression = prev_passed and failed
         files_written_rel = [str(p.relative_to(self.project_dir)) for p in written]
+        prev_product_signature = next(
+            (e.get("product_signature", "") for e in reversed(prev_entries)
+             if e.get("product_signature")),
+            "",
+        )
+        current_product_signature = product_signature(self.project_dir)
+        product_changed = current_product_signature != prev_product_signature
 
         # task bookkeeping: strict mode preserves the old single-task gate.
         # Hybrid mode checks every open task evidenced by the written files so
@@ -438,6 +446,8 @@ class LoopRunner(
             quality_issues=quality_review.issues,
             quality_next_focus=quality_review.next_focus,
             quality_summary=quality_summary,
+            product_signature=current_product_signature,
+            product_changed=product_changed,
         )
         append_entry(self.project_dir, entry)
         write_state(self.project_dir, running=True, iteration=iteration, mode=mode,
@@ -502,8 +512,18 @@ class LoopRunner(
                     mark = "•"
                 logger.info(f"[9xf] iter {iteration} {mark} {entry.summary or '(no summary)'}"
                       f"  [{entry.commit or 'no commit'}]")
+                if entry.event == "finished" and self._finished_iteration is None:
+                    self._finished_iteration = iteration
                 if self._finished and cfg.stop_on_goal_complete:
                     self._clean_shutdown(iteration, "goal complete")
+                    return
+                if (self._finished_iteration is not None
+                        and not cfg.stop_on_goal_complete
+                        and iteration - self._finished_iteration >= cfg.post_finish_iterations):
+                    self._clean_shutdown(
+                        iteration,
+                        f"post-completion budget exhausted ({cfg.post_finish_iterations} iteration(s))",
+                    )
                     return
             except BackendError as e:
                 backend_failures += 1

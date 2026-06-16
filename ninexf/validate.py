@@ -250,6 +250,11 @@ _DASHBOARD_TERMS = (
     "graph", "graphs", "data", "revenue", "traffic", "conversion",
 )
 
+_GAME_TERMS = (
+    "game", "player", "score", "level", "enemy", "lives", "play", "arcade",
+    "puzzle", "platformer",
+)
+
 
 def _inside_project(project_dir: Path, path: Path) -> bool:
     try:
@@ -321,8 +326,25 @@ def _has_dashboard_intent(html_file: Path, source: str, visible_text: str) -> bo
     return any(term in haystack for term in _DASHBOARD_TERMS)
 
 
+def _has_game_intent(html_file: Path, source: str, visible_text: str, probe: _HTMLProbe) -> bool:
+    haystack = f"{html_file.name} {source} {visible_text}".lower()
+    if any(term in haystack for term in _GAME_TERMS):
+        return True
+    tags = [tag for tag, _ in probe.tags]
+    return "canvas" in tags and not _has_dashboard_intent(html_file, source, visible_text)
+
+
 def _numeric_value_count(text: str) -> int:
     return len(re.findall(r"(?<![\w.])[$]?\d[\d,]*(?:\.\d+)?[kKmMbB]?%?(?![\w.])", text))
+
+
+def _body_visible_text(source: str) -> str:
+    m = re.search(r"<body\b[^>]*>(?P<body>.*)</body>", source, flags=re.I | re.S)
+    body = m.group("body") if m else source
+    body = re.sub(r"<script\b.*?</script>", " ", body, flags=re.I | re.S)
+    body = re.sub(r"<style\b.*?</style>", " ", body, flags=re.I | re.S)
+    text = re.sub(r"<[^>]+>", " ", body)
+    return " ".join(part for part in re.split(r"\s+", text) if part).strip()
 
 
 def _has_visible_chart(probe: _HTMLProbe, source: str) -> bool:
@@ -459,6 +481,19 @@ def _has_canvas_chart_signal(probe: _HTMLProbe, js_sources: list[str]) -> bool:
     if _js_uses_chart(js_sources) and _js_defines_chart(js_sources):
         return True
     return False
+
+
+def _js_has_input_handler(js_sources: list[str]) -> bool:
+    return any(re.search(
+        r"addEventListener\s*\(\s*['\"](?:key(?:down|up|press)|mouse(?:down|up|move)?|click|pointer(?:down|up|move)?|touch(?:start|end|move))",
+        source,
+        re.I,
+    ) for source in js_sources)
+
+
+def _js_has_update_loop(js_sources: list[str]) -> bool:
+    return any(re.search(r"requestAnimationFrame|setInterval|setTimeout", source, re.I)
+               for source in js_sources)
 
 
 def _dashboard_quality_warnings(probe: _HTMLProbe, css_sources: list[str]) -> list[str]:
@@ -615,7 +650,9 @@ def _frontend_static_errors(
             )
 
         visible_text = " ".join(probe.text_parts)
+        body_text = _body_visible_text(source)
         dashboard_like = _has_dashboard_intent(html_file, source, visible_text)
+        game_like = _has_game_intent(html_file, source, visible_text, probe)
         has_inline_style = bool("".join(probe.style_text).strip())
         if dashboard_like and not valid_stylesheets and not has_inline_style:
             if stylesheet_links:
@@ -674,6 +711,65 @@ def _frontend_static_errors(
                     phase,
                     f"frontend_static: {rel}: chart/graph language is present but "
                     "no visible chart marks, table data, bars, meter, or progress elements were found",
+                    final_only=True,
+                )
+
+        if game_like and not dashboard_like:
+            if not valid_stylesheets and not has_inline_style:
+                _add_phase_issue(
+                    errors,
+                    warnings,
+                    phase,
+                    f"frontend_static: {rel}: game-like HTML needs local CSS or a non-empty <style> block; "
+                    "avoid browser-default rendering",
+                    final_only=not written_css,
+                )
+            if not body_text.strip():
+                _add_phase_issue(
+                    errors,
+                    warnings,
+                    phase,
+                    f"frontend_static: {rel}: game-like HTML needs visible on-page UI such as a title, "
+                    "instructions, score, or status text",
+                    final_only=True,
+                )
+            elif len(body_text.split()) < 2:
+                warnings.append(
+                    f"product_warning: frontend_static: {rel}: game-like HTML exposes very little visible UI text; "
+                    "add clearer title, instructions, or status feedback"
+                )
+            tags = [tag for tag, _ in probe.tags]
+            if "canvas" not in tags and not re.search(r"\b(board|arena|playfield)\b", source, re.I):
+                _add_phase_issue(
+                    errors,
+                    warnings,
+                    phase,
+                    f"frontend_static: {rel}: game-like HTML needs an obvious play surface such as a canvas or board",
+                    final_only=True,
+                )
+            if not script_assets:
+                _add_phase_issue(
+                    errors,
+                    warnings,
+                    phase,
+                    f"frontend_static: {rel}: game-like HTML needs local JavaScript for gameplay behavior",
+                    final_only=True,
+                )
+            elif not _js_has_input_handler(js_sources):
+                _add_phase_issue(
+                    errors,
+                    warnings,
+                    phase,
+                    f"frontend_static: {rel}: game script has no obvious gameplay input handler "
+                    "(keyboard, mouse, click, pointer, or touch)",
+                    final_only=True,
+                )
+            if script_assets and not _js_has_update_loop(js_sources):
+                _add_phase_issue(
+                    errors,
+                    warnings,
+                    phase,
+                    f"frontend_static: {rel}: game script has no obvious update loop or timed progression",
                     final_only=True,
                 )
 

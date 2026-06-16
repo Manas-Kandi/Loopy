@@ -12,6 +12,13 @@ QUALITY_DIMENSIONS = (
     "polish",
 )
 
+READY_BENIGN_ISSUES = (
+    "none identified",
+    "no material blocker remains",
+    "no material blockers remain",
+    "no obvious high-leverage improvement remains",
+)
+
 
 @dataclass
 class QualityReview:
@@ -60,6 +67,14 @@ def parse_quality_review(raw: str) -> QualityReview:
         elif upper == "NEXT_FOCUS":
             review.next_focus = value
             review.parsed = True
+    if review.status == "READY":
+        substantive = [
+            issue for issue in review.issues
+            if issue.strip()
+            and issue.strip().lower().rstrip(".") not in READY_BENIGN_ISSUES
+        ]
+        if substantive:
+            review.status = "NEEDS_MORE_WORK"
     return review
 
 

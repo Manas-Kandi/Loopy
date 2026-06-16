@@ -48,7 +48,7 @@ def _init_seed(seed_dir: Path, goal: str, model: str | None, preset: str | None,
     merged = {"model": model, "temperature": temperature}
     merged.update(overrides or {})
     write_config(seed_dir, merged, preset=preset)
-    (seed_dir / ".gitignore").write_text("__pycache__/\n*.pyc\nstate.json\n")
+    (seed_dir / ".gitignore").write_text("__pycache__/\n*.pyc\n.DS_Store\nstate.json\n")
     if not (seed_dir / ".git").exists():
         init_repo(seed_dir)
     commit_all(seed_dir, "9xf arena seed: goal and config", allow_empty=True)

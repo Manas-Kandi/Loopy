@@ -171,8 +171,16 @@ class VerifyMixin:
             context_overflow=self.backend.take_overflow(),
         )
         append_entry(self.project_dir, entry)
-        write_state(self.project_dir, running=True, iteration=iteration, mode="verify_done",
-                    subtask=summary, validation_passed=result.passed, ts=now_iso())
+        write_state(
+            self.project_dir,
+            running=not (self._finished and cfg.stop_on_goal_complete),
+            goal_complete=self._finished,
+            iteration=iteration,
+            mode="verify_done",
+            subtask=summary,
+            validation_passed=result.passed,
+            ts=now_iso(),
+        )
         if has_changes(self.project_dir):
             commit_all(self.project_dir, f"[iter {iteration}] log entry")
         return entry

@@ -16,6 +16,7 @@ from ninexf.backends import (
     BackendError, MistralBackend, NvidiaBackend, OllamaBackend, _post_json,
     context_overflowed, is_rate_limit_error,
 )
+from ninexf.cli import _generate_acceptance_tests
 from ninexf.candidates import CandidateResult, parse_critic_output, pick_winner
 from ninexf.config import PRESETS, Config, load_config, load_dotenv, write_config
 from ninexf.contract import contract_for_prompt, save_contract
@@ -397,6 +398,18 @@ class TestStuck(unittest.TestCase):
         sig = {s.kind for s in detect_signals("fix chart marks", entries, 0.85)}
         self.assertIn("same_warning", sig)
 
+    def test_same_product_signal(self):
+        entries = [
+            {"event": "iteration", "subtask": "a", "validation_passed": True,
+             "files_written": ["src/index.html"], "product_signature": "same", "product_changed": False},
+            {"event": "iteration", "subtask": "b", "validation_passed": True,
+             "files_written": ["src/styles.css"], "product_signature": "same", "product_changed": False},
+            {"event": "iteration", "subtask": "c", "validation_passed": True,
+             "files_written": ["src/script.js"], "product_signature": "same", "product_changed": False},
+        ]
+        sig = {s.kind for s in detect_signals("different step entirely", entries, 0.85)}
+        self.assertIn("same_product", sig)
+
 
 class TestBackendAndStatus(unittest.TestCase):
     def test_detect_rate_limit_error(self):
@@ -688,6 +701,19 @@ class TestQualityReview(unittest.TestCase):
         self.assertEqual(review.issues, ["hierarchy is weak"])
         self.assertEqual(review.next_focus, "improve the dashboard layout")
 
+    def test_ready_with_real_issue_is_downgraded(self):
+        review = parse_quality_review(
+            "STATUS: READY\n"
+            "SCORE prompt_alignment: 4\n"
+            "SCORE correctness: 5\n"
+            "SCORE responsiveness: 4\n"
+            "SCORE ux: 4\n"
+            "SCORE polish: 4\n"
+            "ISSUE: the game still has no user input\n"
+            "NEXT_FOCUS: add keyboard controls\n"
+        )
+        self.assertEqual(review.status, "NEEDS_MORE_WORK")
+
 
 class TestPresets(unittest.TestCase):
     def test_model_catalog_includes_gpt_oss_20b(self):
@@ -779,11 +805,22 @@ class TestDecomposeFallback(unittest.TestCase):
         self.assertTrue((d / "CONTRACT.md").exists())
         self.assertTrue(any("backend failed" in e for e in entry.errors))
 
+    def test_frontend_game_acceptance_generation_is_deterministic(self):
+        d = Path(tempfile.mkdtemp())
+        write_config(d, {"model": "mock"})
+        _generate_acceptance_tests(d, "Write a well designed HTML game")
+        suite = (d / "acceptance" / "test_acceptance.py").read_text()
+        self.assertIn("test_game_has_input_and_update_loop", suite)
+        self.assertIn("src/index.html", suite)
+        self.assertIn("styles.css", suite)
+
     def test_default_control_mode_is_hybrid(self):
         self.assertEqual(Config().control_mode, "hybrid")
 
-    def test_default_continues_after_goal_complete(self):
-        self.assertFalse(Config().stop_on_goal_complete)
+    def test_default_stops_after_goal_complete(self):
+        self.assertTrue(Config().stop_on_goal_complete)
+        self.assertTrue(Config().acceptance_tests)
+        self.assertEqual(Config().post_finish_iterations, 2)
 
     def test_unknown_preset_rejected(self):
         with self.assertRaises(ValueError):
@@ -1129,6 +1166,29 @@ class TestValidationEvidence(unittest.TestCase):
         )
         result = validate(d, [html, css, js], timeout=5, allow_network=True, phase="final")
         self.assertTrue(result.passed, result.errors)
+
+    def test_game_like_canvas_without_visible_ui_or_input_fails(self):
+        d = Path(tempfile.mkdtemp())
+        (d / "src").mkdir()
+        html = d / "src" / "index.html"
+        css = d / "src" / "styles.css"
+        js = d / "src" / "script.js"
+        html.write_text(
+            "<!doctype html><html><head><title>My Game</title>"
+            "<link rel='stylesheet' href='styles.css'></head>"
+            "<body><canvas id='gameCanvas'></canvas><script src='script.js'></script></body></html>"
+        )
+        css.write_text("body{display:flex;align-items:center;justify-content:center}\n")
+        js.write_text(
+            "const ctx = document.getElementById('gameCanvas').getContext('2d');\n"
+            "function draw(){ ctx.clearRect(0,0,100,100); ctx.fillRect(10,10,20,20); requestAnimationFrame(draw); }\n"
+            "draw();\n"
+        )
+        result = validate(d, [html, css, js], timeout=5, allow_network=True, phase="final")
+        self.assertFalse(result.passed)
+        joined = "\n".join(result.errors)
+        self.assertIn("visible on-page UI", joined)
+        self.assertIn("input handler", joined)
 
     def test_chartjs_without_loaded_library_fails_validation(self):
         d = Path(tempfile.mkdtemp())

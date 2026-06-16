@@ -11,6 +11,7 @@ name explicitly), keeping each file focused on its own logic.
 
 from __future__ import annotations
 
+import hashlib
 import re
 import signal
 import time
@@ -185,3 +186,22 @@ def note_contradicted(note: str, errors: list[str], warnings: list[str]) -> bool
         if "still appears" in evidence:
             return True
     return False
+
+
+def product_signature(project_dir: Path, roots: tuple[str, ...] = ("src",)) -> str:
+    """Stable hash of the current product files under selected roots."""
+    digest = hashlib.sha1()
+    for root_name in roots:
+        root = project_dir / root_name
+        if not root.exists():
+            continue
+        for path in sorted(p for p in root.rglob("*") if p.is_file()):
+            rel = path.relative_to(project_dir)
+            digest.update(str(rel).encode("utf-8", "replace"))
+            digest.update(b"\0")
+            try:
+                digest.update(path.read_bytes())
+            except OSError:
+                digest.update(b"<unreadable>")
+            digest.update(b"\0")
+    return digest.hexdigest()

@@ -44,8 +44,9 @@ DEFAULTS = {
     "reflection_every": 2,
     "reflection_max_notes": 3,
     "quality_review_enabled": True,
-    "acceptance_tests": False,
-    "stop_on_goal_complete": False,
+    "acceptance_tests": True,
+    "stop_on_goal_complete": True,
+    "post_finish_iterations": 2,
     "critic_enabled": False,
     "critic_max_revisions": 1,
     "best_of_n": 1,
@@ -93,6 +94,7 @@ PRESETS = {
         "max_task_failures": 4,
         "max_verify_attempts": 5,
         "acceptance_tests": True,
+        "stop_on_goal_complete": True,
         "keep_best": True,
     },
     # The control condition for benchmarking: decompose + validate, but none of
@@ -109,6 +111,7 @@ PRESETS = {
         "quality_review_enabled": False,
         "keep_best": False,
         "acceptance_tests": False,
+        "stop_on_goal_complete": True,
     },
 }
 
@@ -147,6 +150,7 @@ class Config:
     quality_review_enabled: bool = DEFAULTS["quality_review_enabled"]
     acceptance_tests: bool = DEFAULTS["acceptance_tests"]
     stop_on_goal_complete: bool = DEFAULTS["stop_on_goal_complete"]
+    post_finish_iterations: int = DEFAULTS["post_finish_iterations"]
     critic_enabled: bool = DEFAULTS["critic_enabled"]
     critic_max_revisions: int = DEFAULTS["critic_max_revisions"]
     best_of_n: int = DEFAULTS["best_of_n"]

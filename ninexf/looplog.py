@@ -58,6 +58,8 @@ class LogEntry:
     quality_issues: list[str] = field(default_factory=list)
     quality_next_focus: str = ""
     quality_summary: str = ""
+    product_signature: str = ""
+    product_changed: bool = False
 
 
 def now_iso() -> str:

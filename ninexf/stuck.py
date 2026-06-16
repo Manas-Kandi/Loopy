@@ -18,11 +18,12 @@ OSCILLATION_LOOKBACK = 6
 NO_WRITES_WINDOW = 3
 SAME_ERROR_WINDOW = 3
 SAME_WARNING_WINDOW = 3
+SAME_PRODUCT_WINDOW = 3
 
 
 @dataclass
 class StuckSignal:
-    kind: str  # repeat | oscillation | no_writes | same_error | same_warning
+    kind: str  # repeat | oscillation | no_writes | same_error | same_warning | same_product
     detail: str
 
 
@@ -114,6 +115,25 @@ def detect_same_warning(entries: list[dict]) -> StuckSignal | None:
     return None
 
 
+def detect_same_product(entries: list[dict]) -> StuckSignal | None:
+    recent = [
+        e for e in entries[-SAME_PRODUCT_WINDOW:]
+        if e.get("validation_passed") and e.get("product_signature")
+    ]
+    if len(recent) < SAME_PRODUCT_WINDOW:
+        return None
+    sigs = [e.get("product_signature", "") for e in recent]
+    if len(set(sigs)) != 1:
+        return None
+    changed = [bool(e.get("product_changed")) for e in recent]
+    if any(changed):
+        return None
+    return StuckSignal(
+        "same_product",
+        f"product artifact unchanged for {SAME_PRODUCT_WINDOW} green iterations",
+    )
+
+
 def detect_signals(subtask: str, entries: list[dict], threshold: float) -> list[StuckSignal]:
     """All fired stuck signals for this proposed subtask given iteration history.
     `entries` must be iteration-event log entries, oldest first."""
@@ -124,7 +144,8 @@ def detect_signals(subtask: str, entries: list[dict], threshold: float) -> list[
     for sig in (detect_oscillation(subtask, entries, threshold),
                 detect_no_writes(entries),
                 detect_same_error(entries),
-                detect_same_warning(entries)):
+                detect_same_warning(entries),
+                detect_same_product(entries)):
         if sig:
             signals.append(sig)
     return signals

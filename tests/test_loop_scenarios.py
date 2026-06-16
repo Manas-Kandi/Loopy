@@ -14,7 +14,11 @@ class TestFinisher(unittest.TestCase):
     -> FINISHED, then keep improving until the budget is reached."""
 
     def setUp(self):
-        self.project = make_run("Greeting tool", "mock/finisher")
+        self.project = make_run(
+            "Greeting tool",
+            "mock/finisher",
+            {"stop_on_goal_complete": False, "post_finish_iterations": 10},
+        )
 
     def tearDown(self):
         cleanup(self.project)
@@ -56,6 +60,26 @@ class TestFinisher(unittest.TestCase):
             shutdown = events(entries, "shutdown")
             self.assertIn("goal complete", shutdown[-1]["summary"])
             self.assertEqual(shutdown[-1]["iteration"], finished[0]["iteration"])
+        finally:
+            cleanup(project)
+
+    def test_post_finish_budget_is_bounded_when_continuing(self):
+        project = make_run(
+            "Greeting tool",
+            "mock/finisher",
+            {"stop_on_goal_complete": False, "post_finish_iterations": 2},
+        )
+        try:
+            entries = run_loop(project, max_iterations=10)
+            finished = events(entries, "finished")
+            self.assertEqual(len(finished), 1)
+            shutdown = events(entries, "shutdown")
+            self.assertIn("post-completion budget exhausted", shutdown[-1]["summary"])
+            later_iters = [
+                e for e in iteration_entries(entries)
+                if e.get("iteration", 0) > finished[0]["iteration"]
+            ]
+            self.assertEqual(len(later_iters), 2, later_iters)
         finally:
             cleanup(project)
 
