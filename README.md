@@ -1,4 +1,4 @@
-Loopy v1.0
+#Loopy v1.0
 
 Loopy is the publishable desktop face of the `9xf` engine: a local-first app
 for autonomous coding loops with onboarding, BYO API keys, and Ollama-based
