@@ -128,9 +128,9 @@ body.home #home{display:flex}
   justify-content:space-between;font:10.5px var(--mono);color:var(--faint)}
 #clock{color:var(--dim)}
 #railfoot .rf-right{display:flex;align-items:center;gap:8px}
-#themeBtn{border:0;background:transparent;color:var(--faint);cursor:pointer;
+#themeBtn,#settingsBtn{border:0;background:transparent;color:var(--faint);cursor:pointer;
   font-size:13px;line-height:1;padding:3px 5px;border-radius:6px;transition:color .12s,background .12s}
-#themeBtn:hover{color:var(--accent);background:var(--panel2)}
+#themeBtn:hover,#settingsBtn:hover{color:var(--accent);background:var(--panel2)}
 
 /* ---------- header: readouts + pulse ---------- */
 #main{flex:1;display:flex;flex-direction:column;min-width:0;position:relative}
@@ -163,9 +163,9 @@ body.home #home{display:flex}
 #pulse .pl-fail{stroke:var(--red)}
 #pulse .pl-cur{fill:var(--accent)}
 
-/* ---------- overview / home (flat, mostly boxless) ---------- */
-#home{flex:1;overflow-y:auto;flex-direction:column;align-items:center;padding:30px 32px 90px}
-.hwrap{width:100%;max-width:700px}
+/* ---------- start screen: just the box, centered ---------- */
+#home{flex:1;overflow-y:auto;flex-direction:column;align-items:center;justify-content:center;padding:30px 32px}
+.hwrap{width:100%;max-width:640px}
 
 /* inline start box ("launcher") + quick cards — begin a project, no popup */
 .launcher{background:var(--panel);border:1px solid var(--line);border-radius:14px;
@@ -502,6 +502,7 @@ body.nodiff #gutter,body.nodiff #diffpane{display:none}   /* diff register colla
   <div id="runlist" role="list"></div>
   <div id="railfoot"><span id="clock">--:--:--</span>
     <span class="rf-right"><span id="railStreak"></span>
+      <button id="settingsBtn" onclick="openSettings()" title="Settings" aria-label="Settings">⚙</button>
       <button id="themeBtn" title="Toggle light / dark  (theme)" aria-label="Toggle dark mode">☾</button>
     </span></div>
 </aside>
@@ -526,79 +527,26 @@ body.nodiff #gutter,body.nodiff #diffpane{display:none}   /* diff register colla
     <div id="pulsewrap" style="display:none"><span class="lbl">Pulse — one tick per iteration</span><div id="pulse"></div></div>
   </header>
 
-  <section id="home" aria-label="overview">
+  <section id="home" aria-label="start">
     <div class="hwrap">
-      <!-- the start box: begin a project inline, no popup -->
+      <!-- the start box: a goal and a folder. that's it. -->
       <div class="launcher hplat" id="launcher">
         <textarea id="fGoal" class="launchgoal" rows="2"
           placeholder="What should Loopy build? Describe the goal — one sentence is enough."></textarea>
-        <div id="goalField" style="display:none"></div>   <!-- compat: applyComposeMode toggles this -->
         <div class="launchrow">
           <button class="chip" onclick="pickFolder()"><span class="ic">⌖</span><span id="folderLabel">Choose folder</span></button>
-          <div class="seg-switch launchseg" role="radiogroup">
-            <button id="mReg" class="on" onclick="setMode('')">Regular</button>
-            <button id="mOver" onclick="setMode('overnight')">Overnight</button>
-          </div>
-          <select id="fModel" class="chip-select" title="Model"></select>
           <span class="lspacer"></span>
           <button id="startBtn" class="primary lstart" onclick="startSession()" title="Start  (⌘/Ctrl ↵)">Start <span class="garrow">→</span></button>
         </div>
         <input id="fDir" type="hidden">
         <div id="browser" style="display:none"></div>
         <div class="formerr" id="fErr" role="alert"></div>
-        <div class="launchmeta">
-          <span id="composeTitle" style="display:none">New project</span>
-          <span id="composeHint">Runs on your machine — no account, no email, nothing leaves this Mac.</span>
-        </div>
+        <!-- hidden compat stubs so the existing start logic keeps working -->
+        <select id="fModel" style="display:none"></select>
+        <span id="composeHint" style="display:none"></span>
+        <span id="composeTitle" style="display:none"></span>
+        <div id="goalField" style="display:none"></div>
       </div>
-
-      <div class="startcards">
-        <div class="scard hplat" onclick="openExistingProject()" role="button" tabindex="0">
-          <div class="ic">▸</div><div class="t">Open existing</div></div>
-        <div class="scard hplat" onclick="openSettings()" role="button" tabindex="0">
-          <div class="ic">⚙</div><div class="t">Settings</div></div>
-        <div class="scard hplat" onclick="openAbout()" role="button" tabindex="0">
-          <div class="ic">★</div><div class="t">About</div></div>
-      </div>
-
-      <div class="hhead">
-        <div>
-          <div class="hgreet"><span class="spark">✦</span> <span id="greetLine">What's up next?</span></div>
-          <div class="hsub" id="greetSub">Set a goal and a local model will plan, build, test, and commit on its own.</div>
-        </div>
-        <div class="lvcluster">
-          <div class="lvbadge"><span class="n" id="lvNum">1</span><span class="k">lvl</span></div>
-          <div class="lvinfo">
-            <div class="lvtop"><span class="t" id="lvTitle">Apprentice</span><span class="x" id="lvXp">0 XP</span></div>
-            <div class="xpbar"><div class="xpfill" id="xpFill"></div></div>
-          </div>
-        </div>
-      </div>
-
-      <div class="hrule"></div>
-      <div class="sectionTop">
-        <div class="hsec" style="margin:0"><span>Recent momentum</span><span class="tag" id="streakTag"></span></div>
-        <div class="startstrip">
-          <button class="pillbtn" onclick="openNew()">New project</button>
-          <button class="pillbtn" onclick="openSettings()">Change defaults</button>
-          <button class="pillbtn" onclick="openAbout()">Check updates</button>
-        </div>
-      </div>
-      <div class="stats" id="stats"></div>
-      <div class="statnote" id="statnote"></div>
-
-      <div class="hrule"></div>
-      <div class="hsec"><span>Activity · last 20 weeks</span><span class="tag"></span></div>
-      <div class="heatrow">
-        <div class="heatscroll"><div class="heat" id="heat"></div></div>
-        <div class="heatleg">less
-          <i class="hc"></i><i class="hc l1"></i><i class="hc l2"></i><i class="hc l3"></i><i class="hc l4"></i>
-          more</div>
-      </div>
-
-      <div class="hrule"></div>
-      <div class="hsec"><span>Achievements</span><span class="tag" id="achTag"></span></div>
-      <div class="badges" id="badges"></div>
     </div>
   </section>
 
@@ -766,41 +714,10 @@ function hourLabel(h){
 }
 let lastStats = null;
 function renderHome(s){
-  lastStats = s;
-  const p = s.progress || {level:1,xp:0,pct:0};
-  $('lvNum').textContent = p.level;
-  $('lvTitle').textContent = levelTitle(p.level);
-  $('lvXp').textContent = `${p.xp.toLocaleString()} XP`;
-  $('xpFill').style.width = Math.max(4, p.pct) + '%';
+  lastStats = s;                              // kept for the mascot's celebrate logic
+  const p = s.progress || {level:1};
   $('railLevel').style.display = ''; $('railLevel').textContent = `Lv ${p.level}`;
-
-  const stats = [
-    ['Sessions', s.sessions],
-    ['Iterations', s.iterations],
-    ['Goals', `<span class="em">${s.goals}</span>`],
-    ['Pass rate', `${s.pass_rate}<small>%</small>`],
-    ['Streak', `${s.current_streak}<small> d</small>`],
-  ];
-  $('stats').innerHTML = stats.map(([k,v]) =>
-    `<div class="stat"><div class="sk">${k}</div><div class="sv">${v}</div></div>`).join('');
-  $('statnote').textContent = s.sessions
-    ? `${s.active_days} active day${s.active_days===1?'':'s'} · ${s.tasks_done} tasks done · mostly ${s.favorite_model}`
-    : '';
-
-  $('heat').innerHTML = (s.heatmap||[]).map(d =>
-    `<i class="hc l${d.level}" title="${d.date}: ${d.count} iteration${d.count===1?'':'s'}"></i>`).join('');
-  $('streakTag').textContent = s.longest_streak
-    ? `longest ${s.longest_streak}d · peak ${hourLabel(s.peak_hour)}` : '';
-
-  $('badges').innerHTML = (s.achievements||[]).map(a =>
-    `<div class="badge ${a.unlocked?'unlk':'lock'}" title="${esc(a.name)} — ${esc(a.blurb)}"><div class="g">${a.unlocked?a.glyph:'🔒'}</div></div>`).join('');
-  $('achTag').textContent = `${s.unlocked_count}/${(s.achievements||[]).length}`;
   $('railStreak').textContent = s.current_streak ? `🔥 ${s.current_streak}d` : '';
-
-  $('greetSub').textContent = s.sessions
-    ? "Loopy's kept the lights on — pick a project, or start something new."
-    : 'Set a goal and a local model will plan, build, test, and commit on its own.';
-  $('greetLine').textContent = s.sessions ? greetByLevel(p.level) : "What's up next?";
 }
 function greetByLevel(l){
   if (l >= 7) return 'Welcome back, legend.';
@@ -1467,7 +1384,7 @@ $('copyBtn').onclick = async () => {
 
 /* ---------- new session modal ---------- */
 let mode = '';
-function setMode(m){ mode = m; $('mReg').className = m ? '' : 'on'; $('mOver').className = m ? 'on' : ''; }
+function setMode(m){ mode = m; const a = $('mReg'), b = $('mOver'); if (a) a.className = m ? '' : 'on'; if (b) b.className = m ? 'on' : ''; }
 let lastModelPayload = null;
 let onboard = null;
 function providerModeFor(model){ return String(model||'').startsWith('ollama/') ? 'ollama' : 'api'; }
@@ -1750,7 +1667,7 @@ async function browseTo(path){
     `<button class="primary" onclick="$('browser').style.display='none'">Use folder</button></div>`;
 }
 async function startSession(){
-  const chosenModel = $('fModel').value || null;
+  const chosenModel = $('fModel').value || (appSettings && appSettings.preferred_model) || null;
   const payload = {
     dir: $('fDir').value.trim(), goal: $('fGoal').value.trim(), preset: mode,
     model: chosenModel,
@@ -1829,6 +1746,7 @@ setMascotState('idle');
 syncHomeMascots();
 scheduleBlink();
 loadAppState();
+loadModels();                             // populate the hidden model default
 tickStats(); tickRuns();
 setTimeout(updatePlayMode, 400);          // Loopy starts playing on the start box
 setInterval(tickRuns, 2500);
