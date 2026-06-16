@@ -27,8 +27,8 @@ from ninexf.candidates import (
 from ninexf.config import Config
 from ninexf.contract import contract_for_prompt, save_contract
 from ninexf.context import (
-    append_notes, build_snapshot, changes_since_last, history_for_context,
-    notes_for_prompt, snapshot_codebase,
+    FEEDBACK_FILENAME, append_notes, build_snapshot, changes_since_last, history_for_context,
+    notes_for_prompt, snapshot_codebase, user_feedback_for_prompt,
 )
 from ninexf.explore import count_explores, should_explore
 from ninexf.filecache import FileCache
@@ -44,6 +44,7 @@ from ninexf.prompts import (
     BLOCKER_SECTION, CHANGES_SECTION, CRITIC_SYSTEM, CRITIC_USER, DECOMPOSE_RETRY_NOTE,
     DECOMPOSE_SYSTEM, DECOMPOSE_USER, DIAGNOSIS_SYSTEM, DIAGNOSIS_USER,
     EXECUTOR_SYSTEM, EXECUTOR_USER, EXPLORE_NUDGE_A, EXPLORE_NUDGE_B,
+    FEEDBACK_SECTION,
     FORMAT_RETRY_NOTE,
     MODE_BUILD, MODE_FIX, MODE_REVIEW, NO_TESTS_NOTE, NOTES_SECTION,
     CONTRACT_SECTION, PLANNER_SYSTEM, PLANNER_USER, REFLECTION_SYSTEM,

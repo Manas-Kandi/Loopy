@@ -30,7 +30,7 @@ Reply with the instruction only — no preamble, no numbering, no markdown."""
 PLANNER_USER = """\
 GOAL (the unchanging north star):
 {goal}
-{contract_section}{blocker_section}
+{contract_section}{feedback_section}{blocker_section}
 {tasks_section}{notes_section}
 CURRENT CODEBASE:
 {codebase}
@@ -67,6 +67,11 @@ CURRENT BLOCKER (harness-observed evidence to address next):
 NOTES_SECTION = """
 NOTES (persistent observations from earlier iterations):
 {notes}
+"""
+
+FEEDBACK_SECTION = """
+USER FEEDBACK (explicit steering from the user; treat this as highest-priority direction unless it contradicts the goal or contract):
+{feedback}
 """
 
 CHANGES_SECTION = """
@@ -540,6 +545,7 @@ EXECUTOR_USER = """\
 GOAL:
 {goal}
 {contract_section}
+{feedback_section}
 {notes_section}
 CURRENT CODEBASE:
 {codebase}

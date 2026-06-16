@@ -104,7 +104,7 @@ class VerifyMixin:
                 logger.info(f"[9xf]   quality verify: {review_summary(quality_review)}")
 
         if harness_green and not failed:
-            summary = "goal complete: harness validation green and all acceptance criteria passed"
+            summary = "verification milestone reached: harness validation green and all acceptance criteria passed"
             event = "finished"
             self._finished = True
         else:

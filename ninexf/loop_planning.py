@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from ninexf.loop_common import *  # noqa: F401,F403 - shared LoopRunner surface
 
 
@@ -93,7 +95,23 @@ class PlanningMixin:
         return bool(task and task_is_corrective(task))
 
     def _completion_verified(self) -> bool:
-        return any(e.get("event") == "finished" for e in read_entries(self.project_dir))
+        entries = read_entries(self.project_dir)
+        finished = [e for e in entries if e.get("event") == "finished"]
+        if not finished:
+            return False
+        feedback_path = self.project_dir / FEEDBACK_FILENAME
+        if feedback_path.exists():
+            try:
+                feedback_mtime = feedback_path.stat().st_mtime
+                finished_ts = max(
+                    datetime.fromisoformat(str(e.get("timestamp", "")).replace("Z", "+00:00")).timestamp()
+                    for e in finished if e.get("timestamp")
+                )
+            except (OSError, TypeError, ValueError):
+                return True
+            if feedback_mtime > finished_ts:
+                return False
+        return True
 
     def _pick_mode(self, iteration: int) -> str:
         self._ensure_post_verify_task()
@@ -129,6 +147,8 @@ class PlanningMixin:
         tasks_section = TASKS_SECTION.format(tasks=tasks) if tasks else ""
         contract = contract_for_prompt(self.project_dir)
         contract_section = CONTRACT_SECTION.format(contract=contract) if contract else ""
+        feedback = user_feedback_for_prompt(self.project_dir)
+        feedback_section = FEEDBACK_SECTION.format(feedback=feedback) if feedback else ""
         blocker = self._current_blocker()
         blocker_section = BLOCKER_SECTION.format(blocker=blocker) if blocker else ""
         notes = notes_for_prompt(self.project_dir) if self.config.notes_enabled else ""
@@ -141,6 +161,7 @@ class PlanningMixin:
             goal=self.goal, codebase=codebase, history=history,
             tools=tools, mode_instructions=mode_instructions,
             contract_section=contract_section,
+            feedback_section=feedback_section,
             blocker_section=blocker_section,
             tasks_section=tasks_section, notes_section=notes_section,
             changes_section=changes_section,

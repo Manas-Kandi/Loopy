@@ -17,7 +17,7 @@ class TestFinisher(unittest.TestCase):
         self.project = make_run(
             "Greeting tool",
             "mock/finisher",
-            {"stop_on_goal_complete": False, "post_finish_iterations": 10},
+            {"stop_on_goal_complete": False},
         )
 
     def tearDown(self):
@@ -58,7 +58,7 @@ class TestFinisher(unittest.TestCase):
             finished = events(entries, "finished")
             self.assertEqual(len(finished), 1)
             shutdown = events(entries, "shutdown")
-            self.assertIn("goal complete", shutdown[-1]["summary"])
+            self.assertIn("verification milestone reached", shutdown[-1]["summary"])
             self.assertEqual(shutdown[-1]["iteration"], finished[0]["iteration"])
         finally:
             cleanup(project)
@@ -74,7 +74,7 @@ class TestFinisher(unittest.TestCase):
             finished = events(entries, "finished")
             self.assertEqual(len(finished), 1)
             shutdown = events(entries, "shutdown")
-            self.assertIn("post-completion budget exhausted", shutdown[-1]["summary"])
+            self.assertIn("post-milestone budget exhausted", shutdown[-1]["summary"])
             later_iters = [
                 e for e in iteration_entries(entries)
                 if e.get("iteration", 0) > finished[0]["iteration"]

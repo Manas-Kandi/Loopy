@@ -10,6 +10,7 @@ from pathlib import Path
 
 from ninexf import CONFIG_FILENAME, GOAL_FILENAME, STOP_FILENAME, __version__
 from ninexf.config import PRESETS, load_config, write_config
+from ninexf.context import append_user_feedback, clear_user_feedback, user_feedback_for_prompt
 from ninexf.gitops import commit_all, init_repo
 from ninexf.looplog import read_entries
 from ninexf.models import (
@@ -394,8 +395,11 @@ def cmd_status(args):
         done, total = tl.counts()
         deferred = sum(1 for t in tl.tasks if t.status == "!")
         print(f"tasks: {done}/{total} done" + (f" ({deferred} deferred)" if deferred else ""))
+    feedback = user_feedback_for_prompt(project)
+    if feedback:
+        print(f"user steering: {feedback.splitlines()[0][:100]}")
     if any(e.get("event") == "finished" for e in entries):
-        print("GOAL COMPLETE — verify-done passed")
+        print("verification milestone reached — run can continue")
     if iters:
         last = iters[-1]
         print(f"last sub-task: {last.get('subtask')}")
@@ -414,6 +418,31 @@ def cmd_stop(args):
     project = _project_dir(args)
     (project / STOP_FILENAME).write_text("stop requested via `9xf stop`\n")
     print(f"created {project / STOP_FILENAME} — loop will shut down cleanly at the next iteration boundary")
+
+
+def cmd_steer(args):
+    project = _project_dir(args)
+    if not (project / GOAL_FILENAME).exists():
+        sys.exit(f"no {GOAL_FILENAME} in {project} — run `9xf init` first")
+    if args.clear:
+        clear_user_feedback(project)
+        print("cleared USER_FEEDBACK.md")
+        return
+    text = (args.text or "").strip()
+    if args.file:
+        text = Path(args.file).expanduser().read_text().strip()
+    elif not text and not sys.stdin.isatty():
+        text = sys.stdin.read().strip()
+    if not text:
+        existing = user_feedback_for_prompt(project)
+        if existing:
+            print(existing)
+            return
+        sys.exit("provide steering text via --text, --file, or stdin")
+    append_user_feedback(project, text, replace=args.replace)
+    from ninexf.tasks import append_tasks
+    append_tasks(project, ["Incorporate the latest user feedback from USER_FEEDBACK.md into the implementation."])
+    print("updated USER_FEEDBACK.md")
 
 
 def cmd_log(args):
@@ -536,8 +565,8 @@ def main(argv=None):
                    help="generate a held-out acceptance test suite from the goal at init "
                         "(default: on; use --no-acceptance-tests to disable)")
     p.add_argument("--stop-on-goal-complete", action=argparse.BooleanOptionalAction, default=None,
-                   help="stop as soon as verify-done passes instead of spending the full budget improving "
-                        "(default: on; use --no-stop-on-goal-complete to keep polishing)")
+                   help="stop as soon as verify-done passes instead of using the full iteration/time budget "
+                        "(default: off; use --stop-on-goal-complete to opt in)")
     p.add_argument("--preset", default=None, choices=sorted(PRESETS),
                    help="config preset; 'overnight' enables maximum search "
                         "(best-of-N, critic, explore, repair, acceptance tests, keep-best)")
@@ -561,6 +590,14 @@ def main(argv=None):
     p = sub.add_parser("stop", help="create the STOP file (graceful shutdown)")
     add_dir(p)
     p.set_defaults(func=cmd_stop)
+
+    p = sub.add_parser("steer", help="add or replace explicit user steering for future iterations")
+    p.add_argument("--text", default="", help="steering text to append")
+    p.add_argument("--file", default="", help="read steering text from a file")
+    p.add_argument("--replace", action="store_true", help="replace prior steering instead of appending")
+    p.add_argument("--clear", action="store_true", help="clear saved steering")
+    add_dir(p)
+    p.set_defaults(func=cmd_steer)
 
     p = sub.add_parser("log", help="pretty-print loop_log.jsonl")
     p.add_argument("--raw", action="store_true", help="also dump raw JSONL")

@@ -113,13 +113,16 @@ class LoopRunner(
             self.project_dir, cfg.snapshot_budget, subtask=subtask,
             entries=prev_entries, strategy=cfg.context_strategy, cache=self._file_cache)
         notes = notes_for_prompt(self.project_dir) if cfg.notes_enabled else ""
+        feedback = user_feedback_for_prompt(self.project_dir)
         contract = contract_for_prompt(self.project_dir)
         contract_section = CONTRACT_SECTION.format(contract=contract) if contract else ""
+        feedback_section = FEEDBACK_SECTION.format(feedback=feedback) if feedback else ""
         executor_user = EXECUTOR_USER.format(
             goal=self.goal, codebase=exec_codebase,
             subtask=strip_task_ref(subtask) if task_id else subtask,
             tools=tools,
             contract_section=contract_section,
+            feedback_section=feedback_section,
             notes_section=NOTES_SECTION.format(notes=notes) if notes else "")
 
         # best-of-N: sample candidates at varied temperatures, validate each
@@ -515,14 +518,15 @@ class LoopRunner(
                 if entry.event == "finished" and self._finished_iteration is None:
                     self._finished_iteration = iteration
                 if self._finished and cfg.stop_on_goal_complete:
-                    self._clean_shutdown(iteration, "goal complete")
+                    self._clean_shutdown(iteration, "verification milestone reached")
                     return
                 if (self._finished_iteration is not None
                         and not cfg.stop_on_goal_complete
+                        and cfg.post_finish_iterations > 0
                         and iteration - self._finished_iteration >= cfg.post_finish_iterations):
                     self._clean_shutdown(
                         iteration,
-                        f"post-completion budget exhausted ({cfg.post_finish_iterations} iteration(s))",
+                        f"post-milestone budget exhausted ({cfg.post_finish_iterations} iteration(s))",
                     )
                     return
             except BackendError as e:

@@ -168,13 +168,12 @@ body.home #home{display:flex}
 .hwrap{width:100%;max-width:640px}
 
 /* inline start box ("launcher") + quick cards — begin a project, no popup */
-.launcher{background:var(--panel);border:1px solid var(--line);border-radius:14px;
-  padding:14px 16px 12px;margin-bottom:12px}
-.launchgoal{display:block;width:100%;border:0;background:transparent;padding:6px 4px;min-height:54px;
-  resize:none;font:15px/1.5 var(--sans);color:var(--txt)}
+.launcher{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:20px 22px}
+.launchgoal{display:block;width:100%;border:0;background:transparent;padding:2px 2px;min-height:34px;
+  resize:none;font:15.5px/1.55 var(--sans);color:var(--txt)}
 .launchgoal::placeholder{color:var(--faint)}
 .launchgoal:focus{outline:none}
-.launchrow{display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap}
+.launchrow{display:flex;align-items:center;gap:8px;margin-top:16px;flex-wrap:wrap}
 .chip{display:inline-flex;align-items:center;gap:6px;height:34px;font:inherit;font-size:12px;color:var(--dim);
   background:var(--well);border:1px solid var(--line);border-radius:9px;padding:0 12px;cursor:pointer;
   transition:border-color .12s,color .12s;max-width:230px}
@@ -263,8 +262,10 @@ body.home #home{display:flex}
 #mascot svg .m-tip{fill:var(--mascot-tip)}   /* antenna tip — themed via CSS */
 /* play mode: JS drives transform; physics perches Looper on transcript cards */
 #mascot.play{left:0;top:0;right:auto;bottom:auto;animation:none;
-  transform-origin:50% 100%;will-change:transform;z-index:12}
-#mascot.play svg{width:44px;height:44px}
+  transform-origin:22px 100%;will-change:transform;z-index:12}
+/* height-locked, width auto → sport "scenes" (a wider viewBox with a hoop/goal)
+   extend to the right while Loopy himself stays the same size */
+#mascot.play svg{height:44px;width:auto}
 #mascot.idle{animation:bob 3.2s ease-in-out infinite}
 #mascot.working{animation:bob 1.3s ease-in-out infinite}
 #mascot.happy{animation:hop .5s ease-in-out infinite}
@@ -443,7 +444,8 @@ body.nodiff #gutter,body.nodiff #diffpane{display:none}   /* diff register colla
 .browfoot .sel{flex:1;min-width:0;font:11px var(--mono);color:var(--faint);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .browfoot button{flex:none;padding:5px 13px;font-size:11.5px}
-.formerr{color:var(--red);font-size:12px;margin-top:8px;min-height:14px}
+.formerr{color:var(--red);font-size:12px;margin-top:8px}
+.formerr:empty{margin:0}
 .hint{color:var(--faint);font-size:11.5px;margin-top:6px}
 .kbd{font:10.5px var(--mono);color:var(--faint);border:1px solid var(--line2);
   border-radius:5px;padding:1px 5px;background:var(--well)}
@@ -746,12 +748,13 @@ async function tickStats(){
    hand-drawn parts yields walking, thinking, cheering, flossing, even kicking
    a ball around — fully offline, no text, all feeling on the face + body. */
 const COL = {B:'#c2a7e2', D:'#9f86d0', E:'#463a57', L:'#ffffff',
-  M:'#9270c4', C:'#e3a9d0', H:'#9f86d0'};            // H = hand/arm
-const BODY = [
+  M:'#9270c4', C:'#e3a9d0', H:'#9f86d0',              // H = hand/arm
+  O:'#e0883c', N:'#9a92ac', P:'#9a92ac', K:'#7a7088', Y:'#e0bf45', G:'#6e9b6e'}; // prop colours
+const BODY = [                                        // mildly rounded — softer corners
   '................',
   '.......A........',   // antenna tip (themed)
   '.......D........',
-  '....BBBBBBBB....',
+  '.....BBBBBB.....',   // rounder crown
   '...BBBBBBBBBB...',
   '..BBBBBBBBBBBB..',
   '..BBBBBBBBBBBB..',
@@ -760,7 +763,7 @@ const BODY = [
   '..BCBBBBBBBBCB..',   // cheeks
   '..BBBBBBBBBBBB..',
   '...BBBBBBBBBB...',
-  '....BBBBBBBB....',
+  '.....BBBBBB.....',   // rounder chin
   '................',
   '................',
   '................',
@@ -804,6 +807,31 @@ const LEGS = {
   sit:   {13:'...DDDDDDDDDD...'},
 };
 // animations: frames are [face, arms, legs, holdFrames, ball?]  ball=[x,y,colour]
+// sport "scenes" — a wider 30-wide stage with an actual prop on the right that
+// Loopy (cols 0-15) plays toward. Sparse {row: 30-char string}.
+const PROPS = {
+  hoop: {1:'............................K.', 2:'............................K.',
+         3:'............................K.', 4:'............................K.',
+         5:'........................OOOOK.', 6:'........................N..N..',
+         7:'.........................NN...'},
+  goal: {5:'......................PPPPPPPP', 6:'......................P..N...P',
+         7:'......................P..N...P', 8:'......................P...N..P',
+         9:'......................P..N...P', 10:'......................P...N..P',
+         11:'......................P..N...P', 12:'......................PPPPPPPP'},
+  uprights:{2:'.........................Y..Y.', 3:'.........................Y..Y.',
+         4:'.........................Y..Y.', 5:'.........................Y..Y.',
+         6:'.........................Y..Y.', 7:'.........................Y..Y.',
+         8:'.........................Y..Y.', 9:'.........................YYYY.',
+         10:'..........................YY..', 11:'..........................YY..',
+         12:'..........................YY..'},
+  net:  {7:'................NN............', 8:'................NN............',
+         9:'................NN............', 10:'................NN............',
+         11:'................NN............', 12:'................NN............',
+         13:'................NN............'},
+  fence:{9:'..........................GGGG', 10:'..........................GGGG',
+         11:'..........................GGGG', 12:'..........................GGGG',
+         13:'..........................GGGG'},
+};
 const ANIM = {
   idle:    {loop:true, frames:[['idle','down','stand',90],['blink','down','stand',6],
             ['idle','down','stand',70],['idle','down','stand',46]]},
@@ -821,26 +849,39 @@ const ANIM = {
             ['confused','head','stand',16]]},
   think:   {next:'idle', frames:[['focus','chin','stand',46],['focus','chin','stand',34]]},
   stretch: {next:'idle', frames:[['focus','up','stand',16],['content','up','tuck',12],['idle','down','stand',14]]},
-  soccer:  {next:'idle', frames:[['surprise','down','stand',12,[11,13,'#f4f4f4']],
-            ['focus','out','stand',8,[10,13,'#f4f4f4']],['happy','out','kick',8,[12,12,'#f4f4f4']],
-            ['happy','up','stand',8,[14,11,'#f4f4f4']],['happy','up','stand',8,[16,10,'#f4f4f4']],
-            ['happy','up','stand',12]]},
-  bball:   {next:'idle', frames:[['focus','out','stand',8,[7,12,'#e08a3c']],
-            ['focus','down','stand',7,[7,8,'#e08a3c']],['happy','up','tuck',7,[7,4,'#e08a3c']],
-            ['focus','down','stand',7,[7,8,'#e08a3c']],['focus','out','stand',8,[7,12,'#e08a3c']],
-            ['focus','down','stand',7,[7,8,'#e08a3c']],['happy','up','stand',10]]},
-  tennis:  {next:'idle', frames:[['focus','up','stand',9,[2,5,'#c8e36a']],     // ball comes in
-            ['surprise','up','stand',7,[5,7,'#c8e36a']],['happy','out','kick',7,[9,8,'#c8e36a']],  // swing
-            ['happy','out','stand',7,[13,6,'#c8e36a']],['happy','up','stand',7,[16,4,'#c8e36a']],  // sent back
-            ['happy','up','stand',12]]},
-  football:{next:'idle', frames:[['focus','out','stand',9,[6,12,'#9b6a3a']],  // pick up the ball
-            ['surprise','up','tuck',8,[6,7,'#9b6a3a']],['happy','out','kick',7,[11,8,'#9b6a3a']], // throw
-            ['happy','up','stand',8,[15,5,'#9b6a3a']],['happy','up','stand',8,[16,3,'#9b6a3a']],
-            ['happy','up','tuck',10]]},                                        // touchdown!
-  baseball:{next:'idle', frames:[['focus','wide','stand',9,[1,7,'#f4f4f4']],  // ball pitched in
-            ['surprise','out','stand',7,[5,8,'#f4f4f4']],['happy','out','kick',7,[9,7,'#f4f4f4']], // swing the bat
-            ['happy','up','stand',7,[13,4,'#f4f4f4']],['happy','up','stand',7,[16,1,'#f4f4f4']],   // home run
-            ['happy','up','stand',12]]},
+  // sports — each has a scene with a real prop and a slow, readable ball arc
+  soccer:  {next:'idle', scene:{w:30, prop:PROPS.goal}, frames:[
+            ['focus','out','stand',24,[12,13,'#cdc6da']],           // lines up the ball
+            ['surprise','out','kick',16,[12,12,'#cdc6da']],         // winds up
+            ['happy','out','kick',14,[17,12,'#cdc6da']],            // kicks
+            ['happy','up','stand',14,[22,12,'#cdc6da']],            // ball heading in
+            ['happy','up','stand',22,[25,11,'#cdc6da']],            // GOAL — in the net
+            ['happy','up','tuck',16]]},
+  bball:   {next:'idle', scene:{w:30, prop:PROPS.hoop}, frames:[
+            ['focus','out','stand',22,[11,9,'#e0883c']],            // dribbles
+            ['surprise','up','tuck',16,[13,4,'#e0883c']],           // jump shot
+            ['happy','up','stand',14,[19,0,'#e0883c']],             // ball at the apex
+            ['happy','up','stand',14,[24,4,'#e0883c']],             // dropping toward rim
+            ['happy','up','stand',22,[25,7,'#e0883c']],             // swish through the net
+            ['happy','up','tuck',16]]},
+  tennis:  {next:'idle', scene:{w:30, prop:PROPS.net}, frames:[
+            ['focus','out','stand',22,[3,7,'#c8e36a']],             // ball arrives
+            ['surprise','out','kick',16,[8,8,'#c8e36a']],           // swing
+            ['happy','out','stand',14,[14,3,'#c8e36a']],            // over the net
+            ['happy','up','stand',20,[22,9,'#c8e36a']],             // lands across
+            ['happy','up','stand',14]]},
+  football:{next:'idle', scene:{w:30, prop:PROPS.uprights}, frames:[
+            ['focus','out','stand',22,[11,9,'#9b6a3a']],            // holds the ball
+            ['surprise','up','tuck',16,[13,6,'#9b6a3a']],           // throws
+            ['happy','up','stand',14,[19,3,'#9b6a3a']],             // spiraling
+            ['happy','up','stand',22,[26,5,'#9b6a3a']],             // through the uprights
+            ['happy','up','tuck',16]]},                             // touchdown!
+  baseball:{next:'idle', scene:{w:30, prop:PROPS.fence}, frames:[
+            ['focus','wide','stand',22,[4,8,'#cdc6da']],            // pitch coming
+            ['surprise','out','kick',16,[9,8,'#cdc6da']],           // swing the bat
+            ['happy','out','stand',14,[16,4,'#cdc6da']],            // crack — ball flies
+            ['happy','up','stand',22,[24,1,'#cdc6da']],             // over the fence
+            ['happy','up','tuck',16]]},                             // home run!
   robot:   {next:'idle', frames:[['focus','out','stand',8],['focus','wide','walkA',8],
             ['focus','down','stand',8],['focus','wide','walkB',8],['focus','out','stand',10]]},
   wave:    {next:'idle', frames:[['happy','waveL','stand',8],['happy','waveR','stand',8],
@@ -860,15 +901,23 @@ function compose(f, a, l){
       rows[r] = arr.join(''); } });
   return rows;
 }
-function spriteSvg(rows, ball){
+function spriteSvg(rows, ball, scene){
+  const W = scene ? scene.w : 16;
+  let grid = rows;
+  if (scene){                                        // widen the stage and paint the prop
+    grid = rows.map(r => r + '.'.repeat(W - 16));
+    const prop = scene.prop;
+    if (prop) for (const k in prop){ const r = +k, s = prop[k], arr = grid[r].split('');
+      for (let x = 0; x < s.length; x++) if (s[x] !== '.') arr[x] = s[x]; grid[r] = arr.join(''); }
+  }
   let cells = '';
-  for (let y = 0; y < rows.length; y++){ const row = rows[y];
-    for (let x = 0; x < 16; x++){ const ch = row[x];
+  for (let y = 0; y < 16; y++){ const row = grid[y];
+    for (let x = 0; x < W; x++){ const ch = row[x];
       if (ch === 'A'){ cells += `<rect class="m-tip" x="${x}" y="${y}" width="1" height="1"/>`; continue; }
       if (ch === '.' || !COL[ch]) continue;
       cells += `<rect x="${x}" y="${y}" width="1" height="1" fill="${COL[ch]}"/>`; } }
   if (ball) cells += `<rect x="${ball[0]}" y="${ball[1]}" width="2" height="2" fill="${ball[2]}"/>`;
-  return `<svg viewBox="0 0 16 16" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg">${cells}</svg>`;
+  return `<svg viewBox="0 0 ${W} 16" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg">${cells}</svg>`;
 }
 let mascotState = 'idle', mascotWorkingHint = false, blinkTimer = null, prevGoals = null;
 let interactiveOn = true, bobPhase = 0, lastFinishedDir = null, diffShown = true;
@@ -876,7 +925,7 @@ const finishedSeen = new Set();
 // physics + animation + "brain" state for play mode
 const play = {on:false, raf:0, t:0, x:0, y:0, vx:0, vy:0, sx:1, sy:1, grounded:false,
   targetKey:'', targetFrac:0.15, pendingReact:false, tilt:0, droop:0, host:'',
-  spin:0, spinA:0, startFun:false,
+  spin:0, spinA:0, startFun:false, scene:null,
   anim:null, ai:0, af:0, animLoop:false, animNext:'idle', acting:false, walkT:0};
 
 // the goofing-off repertoire — sports + dances
@@ -886,9 +935,10 @@ const FUN = [...SPORTS, ...DANCES, 'cheer','joy','stretch'];
 
 let lastSig = '';
 function renderPose(f, a, l, ball){
-  const sig = f + a + l + (ball ? ball.join(',') : '');
+  const scene = play.scene || null;
+  const sig = f + a + l + (ball ? ball.join(',') : '') + (scene ? 's' + scene.w : '');
   if (sig === lastSig) return; lastSig = sig;     // skip identical frames (cheap)
-  $('mascotArt').innerHTML = spriteSvg(compose(f, a, l), ball);
+  $('mascotArt').innerHTML = spriteSvg(compose(f, a, l), ball, scene);
 }
 function setMascotArt(face){                       // static pose for dock / home mode
   renderPose(FACES[face] ? face : 'idle', face === 'happy' ? 'up' : 'down', 'stand', null);
@@ -897,6 +947,7 @@ function pick(a){ return a[Math.floor(Math.random()*a.length)]; }
 // frame-based animation player (play mode)
 function playAnim(name){
   const A = ANIM[name]; if (!A) return;
+  play.scene = A.scene || null;                     // sport scenes carry a prop
   play.anim = A.frames; play.ai = 0; play.af = A.frames[0][3];
   play.animLoop = !!A.loop; play.animNext = A.next || 'idle'; play.acting = !A.loop;
   const fr = A.frames[0]; renderPose(fr[0], fr[1], fr[2], fr[4] || null);
@@ -1035,12 +1086,12 @@ function looperThink(){
   const cur = ps.findIndex(p => p.key === play.targetKey);
 
   if (onHome()){
-    // on the start screen he's giddy — struts back and forth across the box and
-    // is always mid-sport or mid-dance while you decide what to build
+    // on the start screen he plays a sport or dance, then strolls, taking his
+    // time so you can actually see each trick
     const roll = Math.random();
-    if (roll < 0.55) doRoutine(pick(FUN));                 // a sport or dance
+    if (roll < 0.6) doRoutine(pick(FUN));                  // a sport or dance
     else { wanderFrac(); if (ps.length > 1) play.targetKey = ps[Math.floor(Math.random()*ps.length)].key; }
-    scheduleThink(1600 + Math.random()*2000);             // lively: every ~1.5–3.5s
+    scheduleThink(2800 + Math.random()*2600);             // calmer: every ~3–5.5s
     return;
   }
 
@@ -1060,7 +1111,7 @@ function looperThink(){
     else { key = ps[Math.floor(Math.random()*ps.length)].key; move = true; wanderFrac(); }         // elsewhere
   }
   if (move){ play.targetKey = key; play.pendingReact = true; }
-  scheduleThink(3200 + Math.random()*3800);               // a decision every ~3–7s
+  scheduleThink(4500 + Math.random()*4500);               // calm: a decision every ~4.5–9s
 }
 function scheduleThink(ms){ clearTimeout(brainTimer); brainTimer = setTimeout(looperThink, ms); }
 
@@ -1080,8 +1131,8 @@ function physicsStep(){
       play.grounded = false; play.vy = -(5 + Math.min(5, Math.abs(dy)*0.045));
       play.vx = Math.max(-3.5, Math.min(3.5, dx*0.05));
     } else {                                                       // close → walk/glide smoothly
-      play.x += dx*0.12; play.y += dy*0.12;
-      if (Math.abs(dx) < 1.2 && Math.abs(dy) < 1.2) onArrive(tgt);
+      play.x += dx*0.075; play.y += dy*0.075;                       // calmer stroll
+      if (Math.abs(dx) < 1.0 && Math.abs(dy) < 1.0) onArrive(tgt);
     }
   }
   if (!play.grounded){
@@ -1098,9 +1149,9 @@ function physicsStep(){
   const dxn = perch.tx - play.x, dyn = perch.ty - play.y;
   const moving = !play.grounded || Math.abs(dxn) > 2.5 || Math.abs(dyn) > 2.5;
   if (moving){
-    play.anim = null; play.acting = false;                         // travel overrides routines
+    play.anim = null; play.acting = false; play.scene = null;       // travel overrides routines/props
     if (!play.grounded) renderPose(play.vy < 0 ? 'focus' : 'surprise', play.vy < 0 ? 'up' : 'out', 'tuck', null);
-    else { play.walkT++; const wf = (play.walkT >> 2) & 1; renderPose('focus', wf?'swingA':'swingB', wf?'walkA':'walkB', null); }
+    else { play.walkT++; const wf = (play.walkT >> 3) & 1; renderPose('focus', wf?'swingA':'swingB', wf?'walkA':'walkB', null); }  // slower legs
   } else {
     stepAnim();
   }
@@ -1296,7 +1347,7 @@ function entryHtml(e){
       </div></div>
     </article>`;
   }
-  if (e.event === 'finished') return `<div class="evt finish"><b>◉ goal complete</b> ${esc(e.summary)}</div>`;
+  if (e.event === 'finished') return `<div class="evt finish"><b>◉ verification milestone</b> ${esc(e.summary)}</div>`;
   if (e.event === 'shutdown') return `<div class="evt">■ stopped — <b>${esc(e.summary)}</b></div>`;
   if (e.event === 'startup')  return `<div class="evt">▶ ${esc(e.summary)}</div>`;
   return `<div class="evt"><b>${esc(e.event)}</b> ${esc(e.summary)}</div>`;

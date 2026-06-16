@@ -45,8 +45,8 @@ DEFAULTS = {
     "reflection_max_notes": 3,
     "quality_review_enabled": True,
     "acceptance_tests": True,
-    "stop_on_goal_complete": True,
-    "post_finish_iterations": 2,
+    "stop_on_goal_complete": False,
+    "post_finish_iterations": 0,
     "critic_enabled": False,
     "critic_max_revisions": 1,
     "best_of_n": 1,
@@ -94,7 +94,7 @@ PRESETS = {
         "max_task_failures": 4,
         "max_verify_attempts": 5,
         "acceptance_tests": True,
-        "stop_on_goal_complete": True,
+        "stop_on_goal_complete": False,
         "keep_best": True,
     },
     # The control condition for benchmarking: decompose + validate, but none of
@@ -111,7 +111,7 @@ PRESETS = {
         "quality_review_enabled": False,
         "keep_best": False,
         "acceptance_tests": False,
-        "stop_on_goal_complete": True,
+        "stop_on_goal_complete": False,
     },
 }
 

@@ -10,11 +10,11 @@ one-time goal; it then repeatedly reads its own codebase and history, generates
 its own next sub-task, writes code, validates it, and commits — with no human in
 the loop. The research artifact is the git history plus `loop_log.jsonl`.
 
-v0.3 shifted the harness from pure observation toward **goal completion**: the
-goal is decomposed into a task list, progress is tracked per task, the loop can
-recover from regressions (auto-revert) and hard-stuck states (branch-and-explore),
-and a run can FINISH — verified against held-out acceptance criteria — instead
-of only hitting the iteration cap.
+v0.3 shifted the harness from pure observation toward **verification-aware
+iteration loops**: the goal is decomposed into a task list, progress is tracked
+per task, the loop can recover from regressions (auto-revert) and hard-stuck
+states (branch-and-explore), and the harness can record a verification
+milestone against held-out acceptance criteria without ending the run early.
 
 v0.4 turns the harness into an **overnight engine**: the bet is that a small
 local model (7B/20B class) plus hours of verified search can approach big-model
@@ -74,6 +74,9 @@ pip install -e .
 # start the loop
 9xf run --dir ~/runs/organizer --max-iterations 20 --delay 30
 
+# later, keep going on the same run directory with more iterations
+9xf run --dir ~/runs/organizer --max-iterations 20
+
 # observe
 9xf status --dir ~/runs/organizer
 9xf log    --dir ~/runs/organizer
@@ -83,6 +86,9 @@ git -C ~/runs/organizer log --oneline
 
 # stop gracefully (or Ctrl+C the running loop — same clean shutdown)
 9xf stop --dir ~/runs/organizer
+
+# steer the next batch of iterations before resuming
+9xf steer --dir ~/runs/organizer --text "Keep the current structure, but prioritize mobile layout and faster controls."
 ```
 
 ## Overnight mode (v0.4)
@@ -237,9 +243,9 @@ aimless with no error anywhere. v0.5 closes this three ways:
    errors and broken file contents go straight back to the executor (v0.4)
 7. Commit — **failed attempts are committed too**; failures are research data
 8. Append the JSONL log entry (also committed, so log and history stay in sync)
-9. Sleep, repeat
+9. Sleep, repeat until the requested iteration or time budget is exhausted
 
-## Goal completion (v0.3)
+## Verification milestones (v0.3)
 
 The loop's state machine:
 
@@ -250,7 +256,7 @@ init ─► decompose (iter 1, 1 LLM call) ─► build ◄───────
    N consec failures ─► [auto-revert to last green] ─► build  │
    hard-stuck ─► [branch-explore, adopt winner] ─► build      │
    all tasks [x]/[!] ─► verify_done ── any FAIL (new tasks) ──┘
-                              └── all PASS + harness green ─► FINISHED
+                              └── all PASS + harness green ─► verification milestone
 ```
 
 - **Decomposition**: iteration 1 breaks the goal into `TASKS.md` (checkbox task
@@ -259,11 +265,13 @@ init ─► decompose (iter 1, 1 LLM call) ─► build ◄───────
   the harness marks tasks done only after a green iteration plus a YES from a
   one-line completion check. Tasks failing `max_task_failures` times are
   deferred (`[!]`) so the loop stops grinding.
-- **Verify-done & FINISHED**: when all tasks are resolved, the harness runs full
+- **Verify-done & verification milestone**: when all tasks are resolved, the harness runs full
   validation + the held-out acceptance suite, then asks the model for a
-  per-criterion PASS/FAIL. The model can only *block* finishing, never force it
-  — finishing requires the harness checks green too. Failures append corrective
-  tasks and the loop resumes building.
+  per-criterion PASS/FAIL. The model can only *block* the milestone, never
+  force it — the harness checks must be green too. Failures append corrective
+  tasks and the loop resumes building. A passing verify records a `finished`
+  event as a milestone marker, but the run still uses the full iteration or
+  time budget unless you explicitly opt into early stop.
 - **Auto-revert**: after `revert_after_failures` consecutive failures the
   working dirs are restored to the last green commit (by path checkout — git
   history stays linear). Capped at 2 reverts to the same commit, then the
@@ -330,10 +338,10 @@ history — so the loop can learn from its own helpers.
   `Ctrl+C` force-quits.
 - Iteration cap (default 50), model-call backend timeout (default 900s), and
   per-run validation timeout (default 10s). Passing verify-done records a
-  `finished` event, but the default is to keep making in-place improvements
-  until the iteration or wall-clock budget is exhausted. Set
-  `stop_on_goal_complete: true` or pass `9xf init --stop-on-goal-complete` to
-  preserve the old early-stop behavior.
+  `finished` event as a verification milestone, but the default is to keep
+  making in-place improvements until the iteration or wall-clock budget is
+  exhausted. Set `stop_on_goal_complete: true` or pass
+  `9xf init --stop-on-goal-complete` only if you want early stop.
 - Network is off by default for validated code: on macOS the validation
   subprocess is wrapped in `sandbox-exec` with a deny-network profile
   (best-effort — falls back to a stripped-env run if unavailable). Opt in with
@@ -384,6 +392,7 @@ goal.txt              set at init, never modified
 TASKS.md              harness-managed task list (agent-read-only)
 ACCEPTANCE.md         harness-managed acceptance criteria (agent-read-only)
 NOTES.md              persistent notes (agent NOTE: lines + harness events)
+USER_FEEDBACK.md      explicit user steering for resumed runs (`9xf steer`)
 acceptance/           held-out acceptance tests (agent can't write or read contents)
 loop_log.jsonl        append-only, one entry per iteration
 state.json            heartbeat written every iteration (dashboard reads this)

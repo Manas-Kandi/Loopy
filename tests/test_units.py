@@ -20,6 +20,7 @@ from ninexf.cli import _generate_acceptance_tests
 from ninexf.candidates import CandidateResult, parse_critic_output, pick_winner
 from ninexf.config import PRESETS, Config, load_config, load_dotenv, write_config
 from ninexf.contract import contract_for_prompt, save_contract
+from ninexf.context import append_user_feedback, clear_user_feedback, user_feedback_for_prompt
 from ninexf.dashboard import _run_status
 from ninexf.fitness import best_state, final_state, fitness_of
 from ninexf.loop_common import ExecOutcome, _repair_file_dump, note_contradicted
@@ -817,10 +818,10 @@ class TestDecomposeFallback(unittest.TestCase):
     def test_default_control_mode_is_hybrid(self):
         self.assertEqual(Config().control_mode, "hybrid")
 
-    def test_default_stops_after_goal_complete(self):
-        self.assertTrue(Config().stop_on_goal_complete)
+    def test_default_uses_full_budget_after_verification_milestone(self):
+        self.assertFalse(Config().stop_on_goal_complete)
         self.assertTrue(Config().acceptance_tests)
-        self.assertEqual(Config().post_finish_iterations, 2)
+        self.assertEqual(Config().post_finish_iterations, 0)
 
     def test_unknown_preset_rejected(self):
         with self.assertRaises(ValueError):
@@ -838,6 +839,16 @@ class TestDecomposeFallback(unittest.TestCase):
             self.assertEqual(os.environ["NVIDIA_API_KEY"], "from-env")
             self.assertEqual(os.environ["QUOTED_KEY"], "quoted value")
             self.assertEqual(os.environ["COMMENTED"], "value")
+
+    def test_user_feedback_persists_and_can_be_cleared(self):
+        d = Path(tempfile.mkdtemp())
+        append_user_feedback(d, "Improve the HUD and make the controls snappier.")
+        append_user_feedback(d, "Focus on mobile layout next.")
+        text = user_feedback_for_prompt(d)
+        self.assertIn("Improve the HUD", text)
+        self.assertIn("Focus on mobile layout", text)
+        clear_user_feedback(d)
+        self.assertEqual(user_feedback_for_prompt(d), "")
 
     def test_nvidia_config_writes_provider_defaults(self):
         d = Path(tempfile.mkdtemp())

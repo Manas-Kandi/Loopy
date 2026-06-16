@@ -27,9 +27,11 @@ SKIP_DIRS = {".git", "__pycache__", ".venv", "node_modules"}
 SKIP_FILES = {LOG_FILENAME, STOP_FILENAME, "REPORT.md", "state.json",
               "TASKS.md", "ACCEPTANCE.md",  # tasks/criteria get dedicated prompt sections
               "CONTRACT.md",
-              "NOTES.md"}  # notes get their own prompt section too
+              "NOTES.md",
+              "USER_FEEDBACK.md"}  # notes/feedback get dedicated prompt sections too
 CONTENT_DIRS = ("src", "tests", "tools")
 NOTES_FILENAME = "NOTES.md"
+FEEDBACK_FILENAME = "USER_FEEDBACK.md"
 
 
 def _tree(project_dir: Path) -> list[Path]:
@@ -171,6 +173,35 @@ def notes_for_prompt(project_dir: Path) -> str:
     if not path.exists():
         return ""
     return path.read_text().strip()
+
+
+def append_user_feedback(project_dir: Path, text: str, *, replace: bool = False) -> str:
+    """Persist explicit user steering outside agent-managed notes."""
+    clean = text.strip()
+    if not clean:
+        return ""
+    path = project_dir / FEEDBACK_FILENAME
+    existing = "" if replace or not path.exists() else path.read_text().strip()
+    if existing:
+        body = existing + "\n\n---\n\n" + clean
+    else:
+        body = clean
+    path.write_text(body.rstrip() + "\n")
+    return clean
+
+
+def clear_user_feedback(project_dir: Path) -> None:
+    path = project_dir / FEEDBACK_FILENAME
+    if path.exists():
+        path.unlink()
+
+
+def user_feedback_for_prompt(project_dir: Path, max_chars: int = 6000) -> str:
+    path = project_dir / FEEDBACK_FILENAME
+    if not path.exists():
+        return ""
+    text = path.read_text().strip()
+    return text[-max_chars:] if len(text) > max_chars else text
 
 
 HISTORY_EVENTS = {"iteration", "decompose", "verify", "revert", "restore_best"}

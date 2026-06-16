@@ -58,8 +58,8 @@ def _run_status(state: dict, delay: float, last_iter_ok: bool | None) -> str:
     if not state:
         return "never started"
     if not state.get("running"):
-        if state.get("stopped_reason") == "goal complete":
-            return "finished"
+        if state.get("stopped_reason") in {"goal complete", "verification milestone reached"}:
+            return "milestone"
         if last_iter_ok is False:
             return "failed"
         return "stopped"

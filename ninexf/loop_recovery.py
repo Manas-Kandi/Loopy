@@ -120,11 +120,14 @@ class RecoveryMixin:
                 self.project_dir, cfg.snapshot_budget, subtask=plan,
                 entries=prev_entries, strategy=cfg.context_strategy, cache=self._file_cache)
             notes = notes_for_prompt(self.project_dir) if cfg.notes_enabled else ""
+            feedback = user_feedback_for_prompt(self.project_dir)
             contract = contract_for_prompt(self.project_dir)
             contract_section = CONTRACT_SECTION.format(contract=contract) if contract else ""
+            feedback_section = FEEDBACK_SECTION.format(feedback=feedback) if feedback else ""
             executor_user = EXECUTOR_USER.format(
                 goal=self.goal, codebase=exec_codebase, subtask=plan, tools=tools,
                 contract_section=contract_section,
+                feedback_section=feedback_section,
                 notes_section=NOTES_SECTION.format(notes=notes) if notes else "")
             ev = self._execute_once(iteration, plan, executor_user, None,
                                     log_violations=False, purpose=f"explore_executor_{label}")

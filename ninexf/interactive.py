@@ -180,7 +180,7 @@ def _tail_log(d: Path, n: int = 12) -> None:
 
 def _start_loop(d: Path) -> None:
     mode = _choose("How long should it run?", [
-        ("1", "until done or config cap (just go)"),
+        ("1", "use the config budget (just go)"),
         ("2", "a number of iterations"),
         ("3", "a wall-clock budget in hours (overnight)"),
     ], allow_back=True)
