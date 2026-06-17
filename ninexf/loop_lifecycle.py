@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+
 from ninexf.loop_common import *  # noqa: F401,F403 - shared LoopRunner surface
 
 
@@ -56,7 +58,6 @@ class LifecycleMixin:
             "ok": False,
             "error": "",
         }
-        call_ts = now_iso()
         subtask = (
             f"waiting for model: {purpose} "
             f"(timeout {self.config.backend_timeout:g}s"
@@ -74,27 +75,54 @@ class LifecycleMixin:
             try:
                 write_state(
                     self.project_dir, running=True, iteration=base_iter,
-                    mode=base_mode, subtask=subtask, ts=call_ts,
+                    mode=base_mode, subtask=subtask, ts=now_iso(),
                     model_tokens=tokens, model_tps=tps, model_preview=preview,
                 )
             except Exception:
                 pass
 
-        _write_progress(0, 0.0, "")  # mark the call as started, before any tokens
+        # Liveness heartbeat. A slow local model can spend minutes on prompt-eval
+        # before emitting a single token; with no beat, state.json's ts freezes
+        # and the dashboard flips a perfectly-alive run to "stale" after ~2 min
+        # (delay + STALE_GRACE_S), so a working run looks hung. A daemon thread
+        # refreshes ts every couple seconds using the latest token counts that
+        # on_progress reports, and drops an activity breadcrumb during a long
+        # token-less wait — so "thinking" never reads as "stuck". This also caps
+        # state.json writes at one per ~2s regardless of how fast tokens stream.
+        shared = {"tokens": 0, "preview": ""}
+        lock = threading.Lock()
+        stop = threading.Event()
 
-        last_write = [0.0]
+        def _beat() -> None:
+            last_breadcrumb = 0.0
+            while not stop.is_set():
+                with lock:
+                    tokens, preview = shared["tokens"], shared["preview"]
+                elapsed = time.perf_counter() - started
+                tps = round(tokens / elapsed, 1) if elapsed > 0 and tokens else 0.0
+                _write_progress(tokens, tps, preview)
+                if tokens == 0 and elapsed - last_breadcrumb >= 30:
+                    last_breadcrumb = elapsed
+                    try:
+                        append_activity(
+                            self.project_dir,
+                            f"still waiting on model ({purpose}) — {int(elapsed)}s elapsed, "
+                            f"no tokens yet (slow local model or prompt still processing)",
+                            iteration=base_iter, kind="model")
+                    except Exception:
+                        pass
+                stop.wait(2.0)
 
         def on_progress(tokens: int, preview: str) -> None:
-            # Throttle disk writes; a fast local model emits tokens far quicker
-            # than the app polls (every 2s), so ~0.4s granularity is plenty.
-            now = time.perf_counter()
-            if now - last_write[0] < 0.4:
-                return
-            last_write[0] = now
-            elapsed = now - started
-            tps = round(tokens / elapsed, 1) if elapsed > 0 else 0.0
-            _write_progress(tokens, tps, preview)
+            # Cheap and lock-guarded: just stash the latest counts; the heartbeat
+            # thread owns the (throttled) disk write.
+            with lock:
+                shared["tokens"] = tokens
+                shared["preview"] = preview
 
+        _write_progress(0, 0.0, "")  # mark the call as started, before any tokens
+        beater = threading.Thread(target=_beat, daemon=True)
+        beater.start()
         try:
             response = self.backend.complete(
                 system,
@@ -110,6 +138,8 @@ class LifecycleMixin:
             record["error"] = str(e)[:500]
             raise
         finally:
+            stop.set()
+            beater.join(timeout=1.0)
             record["latency_s"] = round(time.perf_counter() - started, 3)
             self._model_calls.append(record)
 

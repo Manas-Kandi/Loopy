@@ -1367,6 +1367,36 @@ class TestDeadCwdResilience(unittest.TestCase):
         self.assertEqual(cfg.model, "mock/finisher")
 
 
+class TestConcurrentRunDetection(unittest.TestCase):
+    """Stacked local runs serialize on one Ollama server and thrash VRAM, making
+    each crawl. other_active_runs() backs the startup warning that surfaces this."""
+
+    def _make_run(self, root, name, *, running, pid):
+        import json as _json
+        d = root / name
+        (d).mkdir()
+        (d / "goal.txt").write_text("g")
+        (d / "state.json").write_text(_json.dumps({"running": running, "pid": pid}))
+        return d
+
+    def test_only_live_other_runs_counted(self):
+        from ninexf import registry
+        root = Path(tempfile.mkdtemp())
+        with mock.patch.dict(os.environ, {"NINEXF_REGISTRY_DIR": str(root / ".reg")}):
+            me = self._make_run(root, "run_me", running=True, pid=os.getpid())
+            alive = self._make_run(root, "run_alive", running=True, pid=os.getpid())
+            stopped = self._make_run(root, "run_stopped", running=False, pid=os.getpid())
+            dead = self._make_run(root, "run_dead", running=True, pid=2_000_000_000)
+            for d in (me, alive, stopped, dead):
+                registry.register_run(d, "g")
+            others = registry.other_active_runs(me)
+            names = {p.name for p in others}
+        self.assertIn("run_alive", names)       # running + pid alive
+        self.assertNotIn("run_me", names)        # excludes self
+        self.assertNotIn("run_stopped", names)   # running=False
+        self.assertNotIn("run_dead", names)      # pid not alive
+
+
 class TestDiagnosticExport(unittest.TestCase):
     def test_export_saves_bundle_file(self):
         d = Path(tempfile.mkdtemp())

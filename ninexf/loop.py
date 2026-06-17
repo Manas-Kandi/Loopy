@@ -484,6 +484,24 @@ class LoopRunner(
         write_state(self.project_dir, running=True, iteration=start, ts=now_iso())
         append_activity(self.project_dir, f"run started with {cfg.model}",
                         iteration=start, kind="startup")
+        # Concurrency warning: local runs share one Ollama server (serialized
+        # inference + VRAM thrash across models). Stacking runs makes each crawl
+        # and look hung — surface it loudly instead of grinding silently.
+        if cfg.provider == "ollama":
+            try:
+                others = other_active_runs(self.project_dir)
+            except Exception:
+                others = []
+            if others:
+                names = ", ".join(p.name for p in others[:6])
+                more = f" (+{len(others) - 6} more)" if len(others) > 6 else ""
+                warn = (f"{len(others)} other run(s) are already active and share this "
+                        f"machine's Ollama server ({names}{more}). Ollama serializes "
+                        f"inference and reloads the model into VRAM whenever consecutive "
+                        f"runs use different models, so iterations here may be very slow "
+                        f"until those runs stop. Run one local model loop at a time.")
+                logger.info(f"[9xf] WARNING: {warn}")
+                append_activity(self.project_dir, warn, iteration=start, kind="warning")
         logger.info(f"[9xf] goal: {self.goal}")
         logger.info(f"[9xf] model: {cfg.model} | starting at iteration {start + 1}, cap {cap}"
               + (f" | time budget {budget_h}h" if deadline else ""))

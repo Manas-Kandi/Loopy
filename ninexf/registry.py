@@ -95,3 +95,45 @@ def read_state(project_dir: Path) -> dict:
         return json.loads(p.read_text())
     except json.JSONDecodeError:
         return {}
+
+
+def _pid_alive(pid: object) -> bool:
+    try:
+        n = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if n <= 0:
+        return False
+    try:
+        os.kill(n, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # exists, owned by someone else
+    except OSError:
+        return False
+    return True
+
+
+def other_active_runs(except_dir: Path) -> list[Path]:
+    """Registered runs (other than except_dir) whose state.json says running and
+    whose pid is still alive. Local model runs all share one Ollama server, which
+    serializes inference and reloads VRAM whenever consecutive runs use different
+    models — so a stack of concurrent runs makes each one crawl. The loop warns
+    about this at startup instead of silently grinding."""
+    try:
+        except_resolved = except_dir.resolve()
+    except OSError:
+        except_resolved = except_dir
+    active: list[Path] = []
+    for other in registered_runs():
+        try:
+            other_resolved = other.resolve()
+        except OSError:
+            other_resolved = other
+        if other_resolved == except_resolved:
+            continue
+        st = read_state(other)
+        if st.get("running") and _pid_alive(st.get("pid")):
+            active.append(other)
+    return active

@@ -55,7 +55,7 @@ from ninexf.prompts import (
     VERIFY_DONE_SYSTEM, VERIFY_DONE_USER,
 )
 from ninexf.quality import QualityReview, parse_quality_review, review_summary
-from ninexf.registry import append_activity, read_state, write_state
+from ninexf.registry import append_activity, other_active_runs, read_state, write_state
 from ninexf.sandbox import WRITABLE_DIRS, ContainmentViolation, safe_write
 from ninexf.stuck import detect_signals
 from ninexf.tasks import (
