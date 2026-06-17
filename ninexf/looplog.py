@@ -66,17 +66,21 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def append_entry(project_dir: Path, entry: LogEntry) -> None:
-    path = project_dir / LOG_FILENAME
-    with path.open("a") as f:
-        f.write(json.dumps(asdict(entry)) + "\n")
+# In-process memo of the parsed log, keyed by absolute path -> (size, mtime_ns,
+# entries). loop_log.jsonl is append-only within a run, and a single iteration
+# calls read_entries() ~20 times (planning, recovery, stuck detection, quality,
+# history). Re-reading and JSON-parsing the whole (ever-growing) file each time
+# is O(n) per call and O(n²) over a long run — the late hours of an overnight
+# run slow to a crawl. This cache makes read_entries O(1) on a hit; append_entry
+# keeps it in lockstep so the file is parsed at most once per appended line.
+# Correctness rests on (size, mtime_ns) validation: any write the cache didn't
+# perform (another process, a resume) shows up as a mismatch and forces a full
+# reparse. Callers treat the result as read-only (verified at every call site).
+_CACHE: dict[str, tuple[int, int, list[dict]]] = {}
 
 
-def read_entries(project_dir: Path) -> list[dict]:
-    path = project_dir / LOG_FILENAME
-    if not path.exists():
-        return []
-    entries = []
+def _parse_log(path: Path) -> list[dict]:
+    entries: list[dict] = []
     for line in path.read_text().splitlines():
         line = line.strip()
         if not line:
@@ -85,6 +89,44 @@ def read_entries(project_dir: Path) -> list[dict]:
             entries.append(json.loads(line))
         except json.JSONDecodeError:
             entries.append({"event": "corrupt-line", "raw": line[:200]})
+    return entries
+
+
+def append_entry(project_dir: Path, entry: LogEntry) -> None:
+    path = project_dir / LOG_FILENAME
+    record = asdict(entry)
+    with path.open("a") as f:
+        f.write(json.dumps(record) + "\n")
+    # Keep the parse cache current instead of invalidating it: extend the cached
+    # list and re-stamp (size, mtime_ns) from the file we just wrote, so the next
+    # read_entries() this iteration is a cache hit rather than a full reparse.
+    key = str(path)
+    cached = _CACHE.get(key)
+    if cached is None:
+        return  # cold: let the next read_entries() do the initial parse
+    try:
+        st = path.stat()
+    except OSError:
+        _CACHE.pop(key, None)
+        return
+    entries = cached[2]
+    entries.append(record)
+    _CACHE[key] = (st.st_size, st.st_mtime_ns, entries)
+
+
+def read_entries(project_dir: Path) -> list[dict]:
+    path = project_dir / LOG_FILENAME
+    key = str(path)
+    try:
+        st = path.stat()
+    except OSError:
+        _CACHE.pop(key, None)
+        return []
+    cached = _CACHE.get(key)
+    if cached is not None and cached[0] == st.st_size and cached[1] == st.st_mtime_ns:
+        return cached[2]
+    entries = _parse_log(path)
+    _CACHE[key] = (st.st_size, st.st_mtime_ns, entries)
     return entries
 
 

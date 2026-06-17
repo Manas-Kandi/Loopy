@@ -1275,6 +1275,64 @@ class TestRepairEvidence(unittest.TestCase):
         self.assertIn("--- tests/test_progress_bar.py ---", dump)
 
 
+class TestLogEntryCache(unittest.TestCase):
+    """read_entries() is cached (append-maintained, stat-validated) so a long run
+    doesn't re-parse the whole growing log ~20x per iteration. These guard that
+    the cache stays correct under appends and external writes."""
+
+    def _entry(self, n):
+        from ninexf.looplog import LogEntry
+        return LogEntry(iteration=n, timestamp="t", subtask=f"s{n}", summary=f"did {n}")
+
+    def test_append_then_read_stays_in_sync(self):
+        from ninexf.looplog import append_entry, read_entries
+        d = Path(tempfile.mkdtemp())
+        self.assertEqual(read_entries(d), [])  # missing file -> empty
+        append_entry(d, self._entry(1))
+        self.assertEqual([e["iteration"] for e in read_entries(d)], [1])
+        append_entry(d, self._entry(2))
+        append_entry(d, self._entry(3))
+        self.assertEqual([e["iteration"] for e in read_entries(d)], [1, 2, 3])
+
+    def test_cache_matches_a_fresh_parse(self):
+        # Prime the cache with a read first, so subsequent appends go through the
+        # warm append-maintained path (where it stores asdict() dicts, not parsed
+        # ones). The maintained dicts must equal a fresh on-disk parse.
+        from ninexf.looplog import _parse_log, append_entry, read_entries
+        from ninexf import LOG_FILENAME
+        d = Path(tempfile.mkdtemp())
+        append_entry(d, self._entry(0))
+        read_entries(d)  # warm the cache
+        for n in range(1, 6):
+            append_entry(d, self._entry(n))  # exercises the maintained path
+        cached = read_entries(d)
+        fresh = _parse_log(d / LOG_FILENAME)
+        self.assertEqual(cached, fresh)
+
+    def test_external_rewrite_is_detected(self):
+        # A write the cache didn't perform (another process, a resume) must force
+        # a reparse — guaranteed by (size, mtime_ns) validation.
+        from ninexf.looplog import append_entry, read_entries
+        from ninexf import LOG_FILENAME
+        import json as _json
+        d = Path(tempfile.mkdtemp())
+        append_entry(d, self._entry(1))
+        self.assertEqual([e["iteration"] for e in read_entries(d)], [1])
+        path = d / LOG_FILENAME
+        path.write_text(_json.dumps({"iteration": 99, "event": "iteration"}) + "\n")
+        os.utime(path, ns=(0, 0))  # force a distinct mtime even on coarse clocks
+        self.assertEqual([e["iteration"] for e in read_entries(d)], [99])
+
+    def test_corrupt_line_is_preserved(self):
+        from ninexf.looplog import read_entries
+        from ninexf import LOG_FILENAME
+        d = Path(tempfile.mkdtemp())
+        (d / LOG_FILENAME).write_text('{"iteration": 1, "event": "iteration"}\nnot json\n')
+        entries = read_entries(d)
+        self.assertEqual(entries[0]["iteration"], 1)
+        self.assertEqual(entries[1]["event"], "corrupt-line")
+
+
 class TestDiagnosticExport(unittest.TestCase):
     def test_export_saves_bundle_file(self):
         d = Path(tempfile.mkdtemp())

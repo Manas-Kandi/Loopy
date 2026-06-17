@@ -89,7 +89,10 @@ def _post_json(url: str, payload: dict, headers: dict, timeout: float = 300) -> 
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
-        body = e.read().decode(errors="replace")[:500]
+        try:
+            body = e.read().decode(errors="replace")[:500]
+        finally:
+            e.close()  # HTTPError holds the response socket; close it explicitly
         message = f"HTTP {e.code} from {url}: {body}"
         if e.code in {401, 403}:
             message += " (check the provider API key and model access)"
@@ -133,7 +136,10 @@ def _stream_post(url: str, payload: dict, headers: dict, timeout: float = 300):
                 except json.JSONDecodeError:
                     continue
     except urllib.error.HTTPError as e:
-        body = e.read().decode(errors="replace")[:500]
+        try:
+            body = e.read().decode(errors="replace")[:500]
+        finally:
+            e.close()  # HTTPError holds the response socket; close it explicitly
         message = f"HTTP {e.code} from {url}: {body}"
         if e.code in {401, 403}:
             raise BackendError(message + " (check the provider API key and model access)",

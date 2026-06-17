@@ -8,8 +8,10 @@ false, the run is wrapped in sandbox-exec with a deny-network profile
 
 from __future__ import annotations
 
+import os
 import py_compile
 import re
+import signal
 import subprocess
 import sys
 import ast
@@ -19,6 +21,62 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 DENY_NETWORK_PROFILE = '(version 1)(allow default)(deny network*)'
+
+# Whether `sandbox-exec` actually works on this machine. Determined once and
+# reused: a fresh validation run issues many sandboxed subprocesses (import-check
+# per file, entry point, tests, acceptance, tool runs — multiplied by best-of-N),
+# and probing before each one doubles the subprocess count on the hot path.
+# None = not yet probed.
+_SANDBOX_EXEC_OK: bool | None = None
+
+
+def _sandbox_exec_available() -> bool:
+    """Probe (once) whether sandbox-exec can apply the deny-network profile.
+    Hardened against sandbox-exec being absent entirely (not just failing): a
+    missing binary raises FileNotFoundError, which we treat as "unavailable"
+    rather than letting it crash validation."""
+    global _SANDBOX_EXEC_OK
+    if _SANDBOX_EXEC_OK is None:
+        try:
+            probe = subprocess.run(
+                ["sandbox-exec", "-p", DENY_NETWORK_PROFILE, "true"],
+                capture_output=True, timeout=10,
+            )
+            _SANDBOX_EXEC_OK = probe.returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            _SANDBOX_EXEC_OK = False
+    return _SANDBOX_EXEC_OK
+
+
+def _run_capture(
+    cmd: list[str], cwd: Path, env: dict, timeout: float
+) -> tuple[int, str, str]:
+    """subprocess.run-with-timeout, but kill the whole process group on timeout.
+
+    Agent code runs under `sandbox-exec python ...` and `python -m unittest`,
+    both of which fork grandchildren. subprocess.run's timeout SIGKILLs only the
+    direct child, orphaning the rest — over an overnight run those zombies pile
+    up (and surface as ResourceWarnings). Putting the child in its own session
+    lets us kill the entire group."""
+    new_session = hasattr(os, "setsid") and hasattr(os, "killpg")
+    with subprocess.Popen(
+        cmd, cwd=cwd, env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL,
+        text=True, start_new_session=new_session,
+    ) as proc:
+        try:
+            out, err = proc.communicate(timeout=timeout)
+            return proc.returncode, out, err
+        except subprocess.TimeoutExpired:
+            if new_session:
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except (ProcessLookupError, PermissionError, OSError):
+                    proc.kill()
+            else:
+                proc.kill()
+            out, err = proc.communicate()
+            raise subprocess.TimeoutExpired(cmd, timeout, output=out, stderr=err)
 
 
 @dataclass
@@ -43,21 +101,11 @@ def run_sandboxed(
     """Run a command in the project dir with a stripped env, timeout, and
     (on macOS, best-effort) no network. Returns (returncode, combined output).
     Used by both validation and agent-created tool runs. -1 means timeout."""
-    if not allow_network and sys.platform == "darwin":
-        sandboxed = ["sandbox-exec", "-p", DENY_NETWORK_PROFILE, *cmd]
-        probe = subprocess.run(
-            ["sandbox-exec", "-p", DENY_NETWORK_PROFILE, "true"],
-            capture_output=True, cwd=project_dir,
-        )
-        if probe.returncode == 0:
-            cmd = sandboxed
+    if not allow_network and sys.platform == "darwin" and _sandbox_exec_available():
+        cmd = ["sandbox-exec", "-p", DENY_NETWORK_PROFILE, *cmd]
     env = {"PATH": "/usr/bin:/bin", "HOME": str(project_dir)}
     try:
-        result = subprocess.run(
-            cmd, cwd=project_dir, env=env,
-            capture_output=True, text=True, timeout=timeout,
-            stdin=subprocess.DEVNULL,
-        )
+        returncode, stdout, stderr = _run_capture(cmd, project_dir, env, timeout)
     except subprocess.TimeoutExpired as e:
         pieces = []
         for part in (getattr(e, "stdout", None), getattr(e, "stderr", None),
@@ -71,8 +119,8 @@ def run_sandboxed(
         excerpt = "\n".join(pieces).strip()
         return -1, (f"timed out after {timeout}s"
                     + (f"\nPartial output:\n{excerpt[-3000:]}" if excerpt else ""))
-    output = ((result.stdout or "") + ("\n" + result.stderr if result.stderr else "")).strip()
-    return result.returncode, output
+    output = ((stdout or "") + ("\n" + stderr if stderr else "")).strip()
+    return returncode, output
 
 
 def _compile_check(paths: list[Path]) -> list[str]:
