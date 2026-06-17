@@ -331,7 +331,12 @@ def _home_menu(cwd: Path) -> None:
 
 def interactive() -> None:
     from ninexf import __version__
-    cwd = Path.cwd()
+    try:
+        cwd = Path.cwd()
+    except OSError:
+        # The working directory was deleted out from under us; don't crash the
+        # whole menu — fall back to home so the launcher still opens.
+        cwd = Path.home()
     print(_bold(_cyan(f"\n  9xf loops v{__version__}")) +
           _dim("  — autonomous coding loops on your own machine"))
     print(_dim(f"  folder: {cwd}"))

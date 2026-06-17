@@ -201,8 +201,20 @@ def _parse_env_value(value: str) -> str:
 
 
 def load_dotenv(project_dir: Path) -> None:
-    """Load simple KEY=VALUE lines from .env without overriding real env vars."""
-    for path in (Path.cwd() / ".env", project_dir / ".env"):
+    """Load simple KEY=VALUE lines from .env without overriding real env vars.
+
+    Resilient to a deleted/invalid current working directory: a detached
+    `9xf run` inherits the spawning app's cwd, and if that directory was removed
+    (e.g. the user churned run folders) Path.cwd() raises FileNotFoundError —
+    which previously crashed the run before it could write any state.json or
+    loop_log. The run directory's own .env (an absolute path) still loads."""
+    paths = []
+    try:
+        paths.append(Path.cwd() / ".env")
+    except OSError:
+        pass  # cwd was deleted out from under us; fall back to the run dir only
+    paths.append(project_dir / ".env")
+    for path in paths:
         if not path.exists():
             continue
         try:

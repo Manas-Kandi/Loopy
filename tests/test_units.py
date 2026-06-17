@@ -1333,6 +1333,40 @@ class TestLogEntryCache(unittest.TestCase):
         self.assertEqual(entries[1]["event"], "corrupt-line")
 
 
+class TestDeadCwdResilience(unittest.TestCase):
+    """A detached `9xf run` can be spawned with a cwd that is later deleted (the
+    user churns run folders). os.getcwd() then raises FileNotFoundError, and
+    load_dotenv() called Path.cwd() unconditionally — crashing the run before it
+    started, with no state.json or loop_log ever written. load_dotenv must
+    survive a dead cwd and still load the run directory's own .env."""
+
+    def test_load_dotenv_survives_deleted_cwd(self):
+        from ninexf.config import load_dotenv
+        d = Path(tempfile.mkdtemp())
+        (d / ".env").write_text("NINEXF_DEADCWD_PROBE=present\n")
+        os.environ.pop("NINEXF_DEADCWD_PROBE", None)
+        try:
+            with mock.patch(
+                "ninexf.config.Path.cwd",
+                side_effect=FileNotFoundError(2, "No such file or directory"),
+            ):
+                load_dotenv(d)  # must not raise
+            self.assertEqual(os.environ.get("NINEXF_DEADCWD_PROBE"), "present")
+        finally:
+            os.environ.pop("NINEXF_DEADCWD_PROBE", None)
+
+    def test_load_config_survives_deleted_cwd(self):
+        from ninexf.config import load_config
+        d = Path(tempfile.mkdtemp())
+        (d / "9xf.config.json").write_text('{"model": "mock/finisher"}')
+        with mock.patch(
+            "ninexf.config.Path.cwd",
+            side_effect=FileNotFoundError(2, "No such file or directory"),
+        ):
+            cfg = load_config(d)  # must not raise
+        self.assertEqual(cfg.model, "mock/finisher")
+
+
 class TestDiagnosticExport(unittest.TestCase):
     def test_export_saves_bundle_file(self):
         d = Path(tempfile.mkdtemp())

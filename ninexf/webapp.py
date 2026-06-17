@@ -777,9 +777,13 @@ def start_run(payload: dict) -> dict:
             if not api_key:
                 return {"error": "Loopy has no saved API key for that provider yet"}
             env[settings.api_key_env or SECRET_ENV_NAME] = api_key
+        # Anchor the child to the run directory itself. Without an explicit cwd
+        # the detached process inherits the app's working directory; if the user
+        # has since deleted that folder, the run crashes on Path.cwd() before it
+        # can start. The run dir is absolute and is exactly where work happens.
         proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT,
                                 stdin=subprocess.DEVNULL, start_new_session=True,
-                                env=env)
+                                cwd=str(d), env=env)
     except OSError as e:
         return {"error": f"could not start the loop: {e}"}
     finally:
