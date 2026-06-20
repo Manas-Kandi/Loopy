@@ -66,6 +66,27 @@ DEFAULTS = {
 
 NVIDIA_ENDPOINT = "https://integrate.api.nvidia.com/v1"
 MISTRAL_ENDPOINT = "https://api.mistral.ai/v1"
+OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1"
+
+
+def _api_key_env_for_model(model: str) -> str:
+    """Return the provider-specific API key env var for a model string.
+
+    Ollama models use the generic SECRET_ENV_NAME because the app does not
+    require an API key for local inference. Hosted models always map to their
+    provider's key env so a stale config cannot try to talk to the wrong
+    provider's API key vault.
+    """
+    prefix = model.split("/", 1)[0] if "/" in model else model
+    if prefix == "openrouter":
+        return "OPENROUTER_API_KEY"
+    if prefix == "nvidia":
+        return "NVIDIA_API_KEY"
+    if prefix == "mistral":
+        return "MISTRAL_API_KEY"
+    if prefix == "anthropic":
+        return "ANTHROPIC_API_KEY"
+    return DEFAULTS["api_key_env"]
 
 # Named presets applied at init (`9xf init --preset overnight`). A preset is a
 # layer between DEFAULTS and explicit CLI overrides. "overnight" trades wall
@@ -244,6 +265,10 @@ def load_config(project_dir: Path) -> Config:
     raw = json.loads(path.read_text())
     known = {k: raw[k] for k in DEFAULTS if k in raw}
     extra = {k: v for k, v in raw.items() if k not in DEFAULTS}
+    # Fix configs that have a model from one provider but an api_key_env from another
+    # (e.g. OpenRouter model with a stale MISTRAL_API_KEY from an earlier default).
+    model = str(known.get("model", DEFAULTS["model"]))
+    known["api_key_env"] = _api_key_env_for_model(model)
     return Config(**known, extra=extra)
 
 
@@ -256,16 +281,15 @@ def write_config(project_dir: Path, overrides: dict | None = None,
         data.update(PRESETS[preset])
     if overrides:
         data.update({k: v for k, v in overrides.items() if v is not None})
-    if str(data.get("model", "")).startswith("nvidia/"):
-        if data.get("endpoint") == DEFAULTS["endpoint"]:
-            data["endpoint"] = NVIDIA_ENDPOINT
-        if data.get("api_key_env") == DEFAULTS["api_key_env"]:
-            data["api_key_env"] = "NVIDIA_API_KEY"
-    if str(data.get("model", "")).startswith("mistral/"):
-        if data.get("endpoint") == DEFAULTS["endpoint"]:
-            data["endpoint"] = MISTRAL_ENDPOINT
-        if data.get("api_key_env") == DEFAULTS["api_key_env"]:
-            data["api_key_env"] = "MISTRAL_API_KEY"
+    model = str(data.get("model", ""))
+    # Always align the API key env with the model provider.
+    data["api_key_env"] = _api_key_env_for_model(model)
+    if model.startswith("openrouter/") and data.get("endpoint") == DEFAULTS["endpoint"]:
+        data["endpoint"] = OPENROUTER_ENDPOINT
+    if model.startswith("nvidia/") and data.get("endpoint") == DEFAULTS["endpoint"]:
+        data["endpoint"] = NVIDIA_ENDPOINT
+    if model.startswith("mistral/") and data.get("endpoint") == DEFAULTS["endpoint"]:
+        data["endpoint"] = MISTRAL_ENDPOINT
     path = project_dir / CONFIG_FILENAME
     path.write_text(json.dumps(data, indent=2) + "\n")
     return path

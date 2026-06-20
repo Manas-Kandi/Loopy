@@ -20,6 +20,8 @@ from ninexf.models import (
     NVIDIA_GEMMA_MODEL,
     NVIDIA_KIMI_MODEL,
     NVIDIA_QWEN_NEXT_MODEL,
+    OPENROUTER_FREE_MODEL,
+    OPENROUTER_CLAUDE_MODEL,
 )
 from ninexf.registry import register_run
 
@@ -554,9 +556,9 @@ def main(argv=None):
     p = sub.add_parser("init", help="create a new loop project")
     p.add_argument("--goal", required=True, help="the high-level goal (the unchanging north star)")
     p.add_argument("--model", default=None,
-                   help=f"e.g. {DEFAULT_MODEL}, {GPT_OSS_20B_MODEL}, "
+                   help=f"e.g. {DEFAULT_MODEL}, {OPENROUTER_CLAUDE_MODEL}, "
                         f"{MISTRAL_SMALL_MODEL}, {NVIDIA_KIMI_MODEL}, {NVIDIA_QWEN_NEXT_MODEL}, "
-                        f"{NVIDIA_GEMMA_MODEL}, mock")
+                        f"{NVIDIA_GEMMA_MODEL}, {GPT_OSS_20B_MODEL}, mock")
     p.add_argument("--max-iterations", type=int, default=None)
     p.add_argument("--delay", type=float, default=None, help="seconds between iterations")
     p.add_argument("--allow-network", action="store_true",

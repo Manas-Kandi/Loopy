@@ -13,7 +13,7 @@ import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from ninexf.models import DEFAULT_MODEL, MISTRAL_SMALL_MODEL
+from ninexf.models import DEFAULT_MODEL, OPENROUTER_FREE_MODEL
 
 APP_DIR_ENV = "NINEXF_APP_DIR"
 SECRET_ENV_NAME = "LOOPY_API_KEY"
@@ -45,11 +45,11 @@ def secrets_path() -> Path:
 @dataclass
 class AppSettings:
     onboarding_complete: bool = False
-    preferred_mode: str = "ollama"  # ollama | api
+    preferred_mode: str = "api"  # api | ollama
     preferred_model: str = DEFAULT_MODEL
     ollama_endpoint: str = "http://localhost:11434"
-    api_model: str = MISTRAL_SMALL_MODEL
-    api_key_env: str = SECRET_ENV_NAME
+    api_model: str = OPENROUTER_FREE_MODEL
+    api_key_env: str = "OPENROUTER_API_KEY"
     last_dir: str = ""
     mascot_enabled: bool = True
 

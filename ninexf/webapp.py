@@ -404,10 +404,13 @@ def list_models() -> dict:
     installed = _ollama_models(settings.ollama_endpoint)
     found = [ollama_model_id(m) for m in installed]
     options = model_options(installed)
+    if settings.preferred_mode == "ollama":
+        default = settings.preferred_model
+    else:
+        default = settings.api_model or settings.preferred_model
     return {
         "models": options,
-        "default": settings.preferred_model if settings.preferred_mode == "ollama"
-        else (found[0] if found else settings.preferred_model),
+        "default": default,
         "recommended": options[: min(len(options), 6)],
         "api_models": api_model_options(),
     }
@@ -445,6 +448,8 @@ def validate_ollama(payload: dict | None = None) -> dict:
 
 
 def _provider_defaults(model: str) -> tuple[str, str]:
+    if model.startswith("openrouter/"):
+        return "api", "OPENROUTER_API_KEY"
     if model.startswith("mistral/"):
         return "api", "MISTRAL_API_KEY"
     if model.startswith("nvidia/"):
@@ -727,15 +732,12 @@ def start_run(payload: dict) -> dict:
     settings = load_app_settings()
     goal = (payload.get("goal") or "").strip()
     selected_model = str(payload.get("model") or "").strip()
-    mode = str(payload.get("provider_mode") or settings.preferred_mode).strip() or "ollama"
+    mode = str(payload.get("provider_mode") or settings.preferred_mode).strip() or "api"
     if not selected_model:
         selected_model = settings.preferred_model if mode == "ollama" else settings.api_model
     endpoint = str(payload.get("endpoint") or "").strip()
     if not endpoint and selected_model.startswith("ollama/"):
         endpoint = settings.ollama_endpoint
-    api_key_env = None
-    if not selected_model.startswith("ollama/"):
-        api_key_env = settings.api_key_env or SECRET_ENV_NAME
     if not (d / CONFIG_FILENAME).exists():
         if not goal:
             return {"error": "a goal is required for a new project"}
@@ -747,7 +749,6 @@ def start_run(payload: dict) -> dict:
                 model=selected_model or None,
                 preset=payload.get("preset") or None,
                 endpoint=endpoint or None,
-                api_key_env=api_key_env,
             )
         except (FileExistsError, OSError, ValueError) as e:
             return {"error": str(e)}

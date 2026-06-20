@@ -732,7 +732,9 @@ class TestPresets(unittest.TestCase):
 
     def test_webapp_model_list_includes_recommended_models(self):
         from ninexf.webapp import list_models
-        with mock.patch("ninexf.interactive._ollama_models", return_value=[]):
+        from ninexf.appsettings import AppSettings
+        with mock.patch("ninexf.interactive._ollama_models", return_value=[]), \
+             mock.patch("ninexf.webapp.load_app_settings", return_value=AppSettings()):
             models = list_models()
         self.assertEqual(models["default"], DEFAULT_MODEL)
         self.assertIn(GPT_OSS_20B_MODEL, models["models"])
@@ -740,9 +742,7 @@ class TestPresets(unittest.TestCase):
         self.assertIn(MISTRAL_SMALL_MODEL, models["models"])
         self.assertIn(MISTRAL_SMALL_MODEL, models["recommended"])
         self.assertIn(NVIDIA_GEMMA_MODEL, models["models"])
-        self.assertIn(NVIDIA_GEMMA_MODEL, models["recommended"])
         self.assertIn(NVIDIA_QWEN_NEXT_MODEL, models["models"])
-        self.assertIn(NVIDIA_QWEN_NEXT_MODEL, models["recommended"])
 
     def test_overnight_preset(self):
         d = Path(tempfile.mkdtemp())

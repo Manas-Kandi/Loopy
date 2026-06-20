@@ -658,7 +658,7 @@ const pad3 = n => String(n).padStart(3,'0');
 let current = null, pinnedCommit = null, lastDiffCommit = null, lastRender = '', lastRail = '';
 let openIters = new Set(), touched = new Set(), autoIter = null, lastEntries = [];
 let openActs = new Set();
-let appState = null, appSettings = null, settingsMode = 'ollama', composeMode = 'new';
+let appState = null, appSettings = null, settingsMode = 'api', composeMode = 'new';
 let selectedDirIsRun = false;
 const DOCS_URL = 'https://github.com/Manas-Kandi/9xf-loops';
 const RELEASES_URL = 'https://github.com/Manas-Kandi/9xf-loops/releases';
@@ -1526,6 +1526,8 @@ function populateModelSelects(m){
     $('fModel').value = appSettings.preferred_mode === 'api' ? appSettings.api_model : appSettings.preferred_model;
     $('sLocalModel').value = appSettings.preferred_model;
     $('sApiModel').value = appSettings.api_model;
+  } else if (m.default) {
+    $('fModel').value = m.default;
   }
 }
 async function loadModels(){
@@ -1540,7 +1542,7 @@ async function loadAppState(){
     appSettings = appState.settings;
   }catch(e){ return; }
   $('aboutVersion').textContent = `Version ${appState.version}`;
-  settingsMode = appSettings.preferred_mode || 'ollama';
+  settingsMode = appSettings.preferred_mode || 'api';
   if (!$('fDir').value && appSettings.last_dir) $('fDir').value = appSettings.last_dir;
   syncHomeMascots();
   if (appState.needs_onboarding) openOnboarding();
@@ -1593,7 +1595,7 @@ function openSettings(){
   $('settingsErr').textContent = '';
   loadModels().then(() => {
     if (!appSettings) return;
-    setSettingsMode(appSettings.preferred_mode || 'ollama');
+    setSettingsMode(appSettings.preferred_mode || 'api');
     $('sOllamaEndpoint').value = appSettings.ollama_endpoint || 'http://localhost:11434';
     $('sApiKey').value = '';
     $('settingsSavedHint').textContent = appSettings.api_key_present
@@ -1636,11 +1638,11 @@ async function saveSettingsForm(){
 function openOnboarding(){
   onboard = {
     step:'welcome',
-    mode: (appSettings && appSettings.preferred_mode) || 'ollama',
+    mode: (appSettings && appSettings.preferred_mode) || 'api',
     ollamaEndpoint: (appSettings && appSettings.ollama_endpoint) || 'http://localhost:11434',
     ollamaModels: [],
     ollamaModel: (appSettings && appSettings.preferred_model) || '',
-    apiModel: (appSettings && appSettings.api_model) || 'mistral/mistral-small-2603',
+    apiModel: (appSettings && appSettings.api_model) || 'openrouter/openrouter/free',
     apiKey: '',
     error: '',
     note: '',
@@ -1697,7 +1699,7 @@ function renderOnboarding(){
     <div class="onKicker">API setup</div>
     <div class="onTitle">Bring your own API key</div>
     <div class="onText">Choose a hosted model, paste the key once, and Loopy will keep it locally on this Mac.</div>
-    <div class="field"><span class="lbl">API model</span><select id="onApiModel">${((lastModelPayload && lastModelPayload.api_models) || ['mistral/mistral-small-2603']).map(m => `<option value="${esc(m)}" ${m===onboard.apiModel?'selected':''}>${esc(m)}</option>`).join('')}</select></div>
+    <div class="field"><span class="lbl">API model</span><select id="onApiModel">${((lastModelPayload && lastModelPayload.api_models) || ['openrouter/openrouter/free']).map(m => `<option value="${esc(m)}" ${m===onboard.apiModel?'selected':''}>${esc(m)}</option>`).join('')}</select></div>
     <div class="field"><span class="lbl">API key</span><input id="onApiKey" type="password" placeholder="stored locally on this Mac"></div>
     <div class="miniNote">No account is created here. Loopy only stores this key locally so it can start runs for you later.</div>
     <div class="formerr" role="alert">${esc(onboard.error || '')}</div>

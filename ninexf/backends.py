@@ -13,7 +13,7 @@ import urllib.error
 import urllib.request
 from typing import Callable
 
-from ninexf.config import DEFAULTS, MISTRAL_ENDPOINT, NVIDIA_ENDPOINT, Config
+from ninexf.config import DEFAULTS, MISTRAL_ENDPOINT, NVIDIA_ENDPOINT, OPENROUTER_ENDPOINT, Config
 
 # A progress callback fired during streaming generation: (tokens_so_far, text_tail).
 # Backends that can't stream simply never call it; callers must treat it as optional.
@@ -418,6 +418,108 @@ class MistralBackend(Backend):
         if not content:
             raise BackendError(f"empty response from mistral: {json.dumps(data)[:300]}")
         return str(content)
+
+
+class OpenRouterBackend(Backend):
+    """OpenRouter chat-completions backend.
+
+    Model strings use the 9xf convention with an extra provider segment, e.g.:
+      openrouter/openrouter/free          (auto-route to a free model)
+      openrouter/anthropic/claude-3.5-sonnet
+      openrouter/google/gemini-2.0-flash-001
+      openrouter/meta-llama/llama-3.3-70b-instruct
+    The model_name (everything after the first ``/``) is sent as-is to the
+    OpenRouter API, so ``openrouter/anthropic/claude-3.5-sonnet`` becomes
+    model ``anthropic/claude-3.5-sonnet`` in the payload.
+    """
+
+    def __init__(self, config: Config):
+        super().__init__()
+        self.model = config.model_name
+        self.timeout = config.backend_timeout
+        self.endpoint = config.endpoint.rstrip("/")
+        if self.endpoint == DEFAULTS["endpoint"]:
+            self.endpoint = OPENROUTER_ENDPOINT
+        self.default_temperature = config.temperature
+        self.top_p = config.top_p
+        self.max_tokens = config.max_tokens
+        self.api_key_env = _api_key_env(config, "OPENROUTER_API_KEY")
+        self.api_key = os.environ.get(self.api_key_env, "")
+        if not self.api_key:
+            raise BackendError(
+                f"API mode requires {self.api_key_env} to be set in the environment",
+                retryable=False,
+            )
+        self.http_referer = os.environ.get("OPENROUTER_HTTP_REFERER", "http://127.0.0.1:8000")
+        self.app_title = os.environ.get("OPENROUTER_APP_TITLE", "9xf Loops")
+        self.reasoning = os.environ.get("OPENROUTER_REASONING", "false").lower() == "true"
+
+    def complete(
+        self,
+        system: str,
+        user: str,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        on_progress: ProgressFn | None = None,
+    ) -> str:
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "max_tokens": max_tokens or self.max_tokens,
+            "temperature": temperature if temperature is not None
+            else self.default_temperature,
+            "top_p": self.top_p,
+            "stream": False,
+        }
+        if self.reasoning:
+            payload["reasoning"] = {"effort": "medium"}
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Accept": "application/json",
+            "HTTP-Referer": self.http_referer,
+            "X-Title": self.app_title,
+        }
+
+        attempts = 3 if self.model == "openrouter/free" else 1
+        last_error = "No usable response."
+        for attempt in range(attempts):
+            attempt_payload = dict(payload)
+            if attempt:
+                attempt_payload.pop("reasoning", None)
+            try:
+                data = _post_json(
+                    f"{self.endpoint}/chat/completions",
+                    attempt_payload,
+                    headers=headers,
+                    timeout=self.timeout,
+                )
+            except BackendError as e:
+                last_error = str(e)
+                if e.retryable and attempt + 1 < attempts:
+                    import time
+                    time.sleep(0.65 * (attempt + 1))
+                    continue
+                raise
+            choices = data.get("choices") or []
+            message = choices[0].get("message", {}) if choices else {}
+            content = message.get("content", "")
+            if isinstance(content, list):
+                content = "".join(
+                    part.get("text", "") if isinstance(part, dict) else str(part)
+                    for part in content
+                )
+            content = str(content).strip()
+            if content:
+                return content
+            last_error = f"empty response from openrouter: {json.dumps(data)[:300]}"
+            if attempt + 1 < attempts:
+                import time
+                time.sleep(0.5 * (attempt + 1))
+        raise BackendError(last_error)
 
 
 class MockBackend(Backend):
@@ -1099,11 +1201,13 @@ def make_backend(config: Config) -> Backend:
         return NvidiaBackend(config)
     if provider == "mistral":
         return MistralBackend(config)
+    if provider == "openrouter":
+        return OpenRouterBackend(config)
     if provider == "mock":
         scenario = config.model.split("/", 1)[1] if "/" in config.model else ""
         return MockBackend(scenario)
     raise BackendError(
         f"unknown provider {provider!r} "
-        "(use ollama/<model>, nvidia/<model>, mistral/<model>, anthropic/<model>, or mock)",
+        "(use openrouter/<model>, ollama/<model>, nvidia/<model>, mistral/<model>, anthropic/<model>, or mock)",
         retryable=False,
     )

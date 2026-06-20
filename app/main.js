@@ -12,7 +12,7 @@ const path = require('path');
 
 const DEFAULT_PORT = Number(process.env.NINEXF_PORT || 9118);
 const PYTHON = process.env.NINEXF_PYTHON || 'python3';
-const REQUIRED_MODEL = 'mistral/mistral-small-2603';
+const REQUIRED_MODEL = 'openrouter/openrouter/free';
 let port = DEFAULT_PORT;
 let url = `http://127.0.0.1:${port}`;
 
